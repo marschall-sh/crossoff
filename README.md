@@ -4,6 +4,8 @@ A fast, keyboard-driven terminal task manager — built with Rust and [ratatui](
 
 Manage projects and tasks entirely from the terminal. Clean three-pane layout with a task list, scrollable detail view, fuzzy search, labels, checklists, due dates, and multiple themes.
 
+![Demo](demo/demo.gif)
+
 ---
 
 ## Features
