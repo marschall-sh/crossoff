@@ -1,0 +1,7 @@
+# crossoff configuration
+# Place this file at ~/.config/crossoff/config.toml
+
+# Available themes:
+#   tokyo-night (default), catppuccin-mocha, catppuccin-latte,
+#   dracula, gruvbox-dark, nord, solarized-light, rose-pine-dawn
+theme = "tokyo-night"
