@@ -7,17 +7,15 @@ Set Padding 0
 Set PlaybackSpeed 1.0
 Set TypingSpeed 80ms
 
-# Hidden setup: seed isolated demo data (binary must already be built)
+# Hidden setup: seed data and launch — recording starts with TUI already open
 Hide
 Type "mkdir -p /tmp/crossoff-demo/crossoff && cp demo/seed.json /tmp/crossoff-demo/crossoff/data.json"
 Enter
-Sleep 500ms
-Show
-
-# Launch crossoff with demo data
+Sleep 300ms
 Type "XDG_DATA_HOME=/tmp/crossoff-demo ./target/release/crossoff"
 Enter
 Sleep 2000ms
+Show
 
 # Switch to Tasks pane
 Tab
