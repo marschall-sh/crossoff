@@ -26,11 +26,6 @@ jobs:
             artifact: crossoff-linux-aarch64
             use_cross: true
 
-          - name: macOS x86_64
-            os: macos-13
-            target: x86_64-apple-darwin
-            artifact: crossoff-macos-x86_64
-
           - name: macOS ARM64
             os: macos-14
             target: aarch64-apple-darwin
