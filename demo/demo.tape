@@ -7,8 +7,12 @@ Set Padding 0
 Set PlaybackSpeed 1.0
 Set TypingSpeed 80ms
 
-# Build release binary and seed isolated demo data
-Exec "cargo build --release 2>/dev/null; mkdir -p /tmp/crossoff-demo/crossoff; cp demo/seed.json /tmp/crossoff-demo/crossoff/data.json"
+# Hidden setup: seed isolated demo data (binary must already be built)
+Hide
+Type "mkdir -p /tmp/crossoff-demo/crossoff && cp demo/seed.json /tmp/crossoff-demo/crossoff/data.json"
+Enter
+Sleep 500ms
+Show
 
 # Launch crossoff with demo data
 Type "XDG_DATA_HOME=/tmp/crossoff-demo ./target/release/crossoff"
