@@ -1,8 +1,6 @@
 # crossoff
 
-A fast, keyboard-driven terminal task manager — built with Rust and [ratatui](https://github.com/ratatui/ratatui).
-
-Manage projects and tasks entirely from the terminal. Clean three-pane layout with a task list, scrollable detail view, fuzzy search, labels, checklists, due dates, and multiple themes.
+A fast, keyboard-driven terminal task manager built in Rust.
 
 ![Demo](demo/demo.gif)
 
@@ -10,125 +8,70 @@ Manage projects and tasks entirely from the terminal. Clean three-pane layout wi
 
 ## Features
 
-- **Projects** — Inbox always pinned to top, others sorted alphabetically
-- **Tasks** — title, description (multi-line, paste-friendly), due date, labels, checklist
-- **Detail pane** — scrollable task preview with bullet rendering and checklist progress
-- **Fuzzy search** — search across all tasks with highlighted matches
-- **Labels** — color-coded tags with automatic contrast
-- **Pin to top** — manually surface any task above the auto-sorted list
-- **Themes** — eight built-in themes
-- **Auto-cleanup** — completed tasks disappear after one hour
+- Projects with a pinned Inbox, tasks sorted by due date
+- Multi-line descriptions, labels, checklists, due dates
+- Scrollable detail pane, fuzzy search with highlighted matches
+- Pin tasks to top, eight built-in themes
+- Completed tasks auto-clean after one hour
 
 ---
 
 ## Install
 
-### Pre-built binaries
-
-Download the latest binary for your platform from the [Releases](../../releases) page.
+**Pre-built binaries** — download for your platform from the [Releases](../../releases) page, then:
 
 ```sh
-# macOS / Linux
-chmod +x crossoff-*
-mv crossoff-* /usr/local/bin/crossoff
+chmod +x crossoff-* && mv crossoff-* /usr/local/bin/crossoff
 ```
 
-### From source
+**From source:**
 
 ```sh
 cargo install --git https://github.com/marschall-sh/crossoff
 ```
 
-Or clone and build:
+---
+
+## Uninstall
 
 ```sh
-git clone https://github.com/marschall-sh/crossoff
-cd crossoff
-cargo build --release
-# binary at target/release/crossoff
+cargo uninstall crossoff
+```
+
+If installed manually, delete the binary and optionally remove your data:
+
+```sh
+rm /usr/local/bin/crossoff
+rm -rf ~/.config/crossoff ~/.local/share/crossoff
 ```
 
 ---
 
 ## Keybinds
 
-### Navigation
-
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` or `j` / `k` | Navigate items |
-| `Tab` / `Shift+Tab` | Cycle panes (Projects → Tasks → Detail) |
-| `Esc` | Go back / cancel |
-
-### Tasks
-
-| Key | Action |
-|-----|--------|
-| `Enter` / `Space` | Toggle done |
-| `n` | New task |
-| `e` | Edit task |
-| `d` | Delete task |
-| `p` | Pin / unpin to top |
-
-### Projects
-
-| Key | Action |
-|-----|--------|
-| `n` | New project |
-| `e` | Rename project |
-| `d` | Delete project |
-
-### Global
-
-| Key | Action |
-|-----|--------|
-| `/` | Fuzzy search all tasks |
+| `↑` / `↓` or `j` / `k` | Navigate |
+| `Tab` / `Shift+Tab` | Cycle panes |
+| `Enter` / `Space` | Toggle task done |
+| `n` / `e` / `d` | New / edit / delete |
+| `p` | Pin task to top |
+| `/` | Fuzzy search |
+| `Ctrl+S` | Save in any editor |
 | `?` | Help |
 | `q` | Quit |
-
-### Editors
-
-| Key | Action |
-|-----|--------|
-| `Ctrl+S` | Save |
-| `Tab` / `Shift+Tab` | Next / previous field |
-| `Enter` | Confirm / open sub-editor |
-| `Esc` | Cancel |
 
 ---
 
 ## Configuration
 
-Place `config.toml` at `~/.config/crossoff/config.toml` (or `$XDG_CONFIG_HOME/crossoff/config.toml`):
+`~/.config/crossoff/config.toml` (XDG respected):
 
 ```toml
 theme = "tokyo-night"
 ```
 
-### Available themes
-
-| Name | Style |
-|------|-------|
-| `tokyo-night` | Dark, blue-purple (default) |
-| `catppuccin-mocha` | Dark, warm pastels |
-| `catppuccin-latte` | Light, warm pastels |
-| `dracula` | Dark, high contrast |
-| `gruvbox-dark` | Dark, earthy retro |
-| `nord` | Dark, arctic blues |
-| `solarized-light` | Light, classic |
-| `rose-pine-dawn` | Light, warm rose |
-
----
-
-## Data
-
-Tasks and projects are stored as JSON at:
-
-```
-~/.local/share/crossoff/data.json
-```
-
-(or `$XDG_DATA_HOME/crossoff/data.json`)
+Available themes: `tokyo-night` · `catppuccin-mocha` · `catppuccin-latte` · `dracula` · `gruvbox-dark` · `nord` · `solarized-light` · `rose-pine-dawn`
 
 ---
 
