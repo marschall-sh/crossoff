@@ -125,13 +125,10 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
     let text_area_y = y + 5;
     let text_area = Rect::new(text_area_x, text_area_y, text_area_w, desc_rows);
 
-    // Compute cursor position within the text area
-    let (cx, cy) = textarea_cursor_pos(
-        &state.description.text,
-        state.description.cursor,
-        text_area_w,
-    );
-    let scroll_y = cy.saturating_sub(desc_rows - 1);
+    // Compute cursor position within the text area (logical lines, not soft-wrap)
+    let (cx, cy) = textarea_cursor_pos(&state.description.text, state.description.cursor);
+    let scroll_y = cy.saturating_sub(desc_rows.saturating_sub(1));
+    let scroll_x = cx.saturating_sub(text_area_w.saturating_sub(1));
 
     // Render the background for the whole text area when active
     if desc_active {
@@ -154,15 +151,16 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
         theme.detail_value
     };
 
-    use ratatui::widgets::Wrap;
     let desc_para = Paragraph::new(display_text)
         .style(Style::default().fg(desc_fg))
-        .wrap(Wrap { trim: false })
-        .scroll((scroll_y, 0));
+        .scroll((scroll_y, scroll_x));
     f.render_widget(desc_para, text_area);
 
     if desc_active {
-        f.set_cursor_position((text_area_x + cx, text_area_y + cy - scroll_y));
+        f.set_cursor_position((
+            text_area_x + cx.saturating_sub(scroll_x),
+            text_area_y + cy.saturating_sub(scroll_y),
+        ));
     }
 
     // --- Due Date (follows immediately after textarea + 1 gap row) ---
@@ -235,12 +233,8 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
     );
 }
 
-/// Compute (col, row) cursor position within character-wrapped text.
-fn textarea_cursor_pos(text: &str, cursor: usize, width: u16) -> (u16, u16) {
-    if width == 0 {
-        return (0, 0);
-    }
-    let w = width as usize;
+/// Compute (col, row) cursor position within explicit newline-separated text.
+fn textarea_cursor_pos(text: &str, cursor: usize) -> (u16, u16) {
     let mut col = 0usize;
     let mut row = 0usize;
 
@@ -253,10 +247,6 @@ fn textarea_cursor_pos(text: &str, cursor: usize, width: u16) -> (u16, u16) {
             col = 0;
         } else {
             col += 1;
-            if col >= w {
-                row += 1;
-                col = 0;
-            }
         }
     }
 
