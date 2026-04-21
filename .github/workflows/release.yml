@@ -8,6 +8,11 @@ on:
 permissions:
   contents: write
 
+env:
+  # Opt in early to the upcoming GitHub-hosted runner default.
+  # This surfaces Node 24 incompatibilities before the forced switch date.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build — ${{ matrix.name }}
@@ -33,7 +38,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -60,7 +65,7 @@ jobs:
         run: mv target/${{ matrix.target }}/release/crossoff ${{ matrix.artifact }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -71,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           merge-multiple: true
 
