@@ -15,19 +15,26 @@ use crate::app::{ActivePane, App, InputMode};
 pub fn draw(f: &mut Frame, app: &App) {
     let theme = app.theme;
 
+    let full_area = f.area();
     let bg = Block::default().style(Style::default().bg(theme.bg));
-    f.render_widget(bg, f.area());
+    f.render_widget(bg, full_area);
+
+    // Keep a subtle outer margin so panes don't touch terminal borders.
+    let app_area = Rect::new(
+        full_area.x.saturating_add(1),
+        full_area.y.saturating_add(1),
+        full_area.width.saturating_sub(2),
+        full_area.height.saturating_sub(2),
+    );
 
     let chunks = Layout::vertical([
-        Constraint::Length(1), // top breathing room
         Constraint::Min(3),    // content
-        Constraint::Length(1), // status bar
+        Constraint::Length(2), // footer spacing + status bar
     ])
-    .split(f.area());
+    .split(app_area);
 
-    draw_content(f, app, chunks[1]);
-    draw_status_bar(f, app, chunks[2]);
-
+    draw_content(f, app, chunks[0]);
+    draw_status_bar(f, app, chunks[1]);
     match &app.input_mode {
         InputMode::ProjectEdit(state) => dialogs::draw_project_edit(f, app, state),
         InputMode::TaskEdit(state) => dialogs::draw_task_edit(f, app, state),
@@ -76,8 +83,12 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let theme = app.theme;
     let today = Local::now().date_naive();
 
+    // Keep one quiet spacer row above the status line for better visual balance.
+    let footer_chunks = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(area);
+    let bar_area = footer_chunks[1];
+
     let bg = Block::default().style(Style::default().bg(theme.header_bg));
-    f.render_widget(bg, area);
+    f.render_widget(bg, bar_area);
 
     // Branding
     let brand_spans = vec![
@@ -160,7 +171,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let stats_width: usize = stats_spans.iter().map(|s| s.content.len()).sum();
     let hint_width: usize = hint_spans.iter().map(|s| s.content.len()).sum();
     let used = brand_width + stats_width + hint_width;
-    let padding = (area.width as usize).saturating_sub(used + 1);
+    let padding = (bar_area.width as usize).saturating_sub(used + 1);
 
     let mut spans = brand_spans;
     spans.extend(stats_spans);
@@ -168,7 +179,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     spans.extend(hint_spans);
 
     let bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(theme.header_bg));
-    f.render_widget(bar, area);
+    f.render_widget(bar, bar_area);
 }
 
 fn build_hints<'a>(hints: &[(&'a str, &'a str)], theme: &crate::theme::Theme) -> Vec<Span<'a>> {

@@ -70,7 +70,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     ];
     if task.pinned && !task.done {
         title_spans.push(Span::styled(
-            "\u{2195} ",
+            "\u{25c6} ",
             Style::default().fg(theme.accent),
         ));
     }

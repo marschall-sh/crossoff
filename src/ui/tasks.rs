@@ -2,7 +2,7 @@ use chrono::{Datelike, Local, NaiveDate};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Padding, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{ActivePane, App};
@@ -40,6 +40,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         .border_style(Style::default().fg(border_color))
         .title(title)
         .title_style(title_style)
+        .padding(Padding::new(0, 0, 1, 1))
         .style(Style::default().bg(theme.bg));
 
     let tasks = app.tasks_for_selected_project();
@@ -105,7 +106,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
 
         // Manual position indicator — only on tasks the user explicitly moved
         let prio_indicator = if task.pinned && !task.done {
-            "\u{2195}" // ↕
+            "\u{25c6}" // ◆
         } else {
             " "
         };
