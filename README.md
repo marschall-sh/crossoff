@@ -69,9 +69,18 @@ rm -rf ~/.config/crossoff ~/.local/share/crossoff
 
 ```toml
 theme = "tokyo-night"
+# Optional custom storage path
+# Can be a directory or a full .json file path
+# data_dir = "/absolute/path/to/crossoff-data"
+# data_dir = "/absolute/path/to/crossoff-data/data.json"
 ```
 
 Available themes: `tokyo-night` · `catppuccin-mocha` · `catppuccin-latte` · `dracula` · `gruvbox-dark` · `nord` · `solarized-light` · `rose-pine-dawn`
+
+Storage behavior:
+- Default data file: `~/.local/share/crossoff/data.json` (or `XDG_DATA_HOME/crossoff/data.json`)
+- Atomic saves via `data.json.tmp` + rename
+- Automatic backup file: `data.json.bak` (used as fallback on load if main file is unreadable)
 
 ---
 

@@ -5,3 +5,10 @@
 #   tokyo-night (default), catppuccin-mocha, catppuccin-latte,
 #   dracula, gruvbox-dark, nord, solarized-light, rose-pine-dawn
 theme = "tokyo-night"
+
+# Optional: custom data location for syncing across machines.
+# You can set either:
+# - a directory (crossoff stores <dir>/data.json), or
+# - a full json file path.
+# data_dir = "/absolute/path/to/crossoff-data"
+# data_dir = "/absolute/path/to/crossoff-data/data.json"

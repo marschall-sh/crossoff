@@ -7,12 +7,17 @@ use serde::Deserialize;
 pub struct Config {
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Optional absolute path for crossoff data directory.
+    /// If set, data is stored in <data_dir>/data.json.
+    #[serde(default)]
+    pub data_dir: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             theme: default_theme(),
+            data_dir: None,
         }
     }
 }
