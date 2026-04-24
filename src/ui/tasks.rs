@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Padding, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{ActivePane, App};
+use crate::app::{format_duration_compact, ActivePane, App};
 use crate::model::label_color_rgb;
 use crate::theme::Theme;
 
@@ -156,6 +156,13 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             spans.push(Span::styled(progress, Style::default().fg(color)));
         }
 
+        let tracked_seconds = app.task_tracked_seconds(task.id);
+        if tracked_seconds > 0 {
+            let tracked = format!(" {}", format_duration_compact(tracked_seconds));
+            extra_width += tracked.len();
+            spans.push(Span::styled(tracked, Style::default().fg(theme.accent)));
+        }
+
         // Due date (right-aligned)
         if let Some(due) = task.due_date {
             let (date_str, date_color) = format_due_date(due, today, theme);
@@ -170,7 +177,12 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             spans.push(Span::styled(date_str, Style::default().fg(date_color)));
         }
 
-        let bg = if is_selected {
+        let is_running = app.is_task_running(task.id);
+        let bg = if is_running && is_selected {
+            Style::default().bg(theme.bg_running_selected)
+        } else if is_running {
+            Style::default().bg(theme.bg_running)
+        } else if is_selected {
             Style::default().bg(theme.bg_selected)
         } else {
             Style::default()

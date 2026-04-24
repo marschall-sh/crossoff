@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::app::{ActivePane, App};
+use crate::app::{format_duration_compact, ActivePane, App};
 use crate::model::label_color_rgb;
 use crate::theme::Theme;
 
@@ -112,6 +112,24 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(friendly, Style::default().fg(color)),
             Span::styled(" \u{00b7} ", Style::default().fg(theme.fg_dim)),
             Span::styled(full_date, Style::default().fg(theme.fg_dim)),
+        ]));
+    }
+
+    let tracked_seconds = app.task_tracked_seconds(task.id);
+    if tracked_seconds > 0 || app.is_task_running(task.id) {
+        let status = if app.is_task_running(task.id) {
+            "Tracking"
+        } else {
+            "Tracked"
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  Time: ", Style::default().fg(theme.detail_label)),
+            Span::styled(
+                format_duration_compact(tracked_seconds),
+                Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" · ", Style::default().fg(theme.fg_dim)),
+            Span::styled(status, Style::default().fg(theme.fg_dim)),
         ]));
     }
 

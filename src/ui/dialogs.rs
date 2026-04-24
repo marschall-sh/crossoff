@@ -7,7 +7,7 @@ use ratatui::Frame;
 
 use crate::app::{
     days_in_month, App, ChecklistEditorState, DatePickerState, DeleteTarget, LabelCreateField,
-    LabelPickerState, ProjectEditState, SearchState, TaskEditState, TaskField,
+    LabelPickerState, MoveTaskState, ProjectEditState, SearchState, TaskEditState, TaskField,
 };
 use crate::model::{label_color_rgb, LABEL_COLOR_NAMES};
 
@@ -908,6 +908,61 @@ pub fn draw_search(f: &mut Frame, app: &App, state: &SearchState) {
     );
 }
 
+// --- Move Task Dialog ---
+
+pub fn draw_move_task(f: &mut Frame, app: &App, state: &MoveTaskState) {
+    let theme = app.theme;
+    let item_count = app.data.projects.len() as u16;
+    let height = (item_count + 6).clamp(8, 18);
+    let area = centered_rect(44, height, f.area());
+    f.render_widget(Clear, area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.input_border))
+        .title(" Move Task ")
+        .title_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        .style(Style::default().bg(theme.bg));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    for (i, project) in app.data.projects.iter().enumerate() {
+        if i as u16 >= inner.height.saturating_sub(3) {
+            break;
+        }
+        let is_selected = i == state.index;
+        let marker = if is_selected { "\u{25b8} " } else { "  " };
+        let line = Line::from(vec![
+            Span::styled(marker, Style::default().fg(theme.cursor_marker)),
+            Span::styled(project.name.as_str(), Style::default().fg(theme.fg)),
+        ]);
+        let bg = if is_selected {
+            Style::default().bg(theme.bg_selected)
+        } else {
+            Style::default()
+        };
+        f.render_widget(
+            Paragraph::new(line).style(bg),
+            Rect::new(inner.x, inner.y + 1 + i as u16, inner.width, 1),
+        );
+    }
+
+    let hy = inner.y + inner.height.saturating_sub(2);
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(" \u{2191}\u{2193}", Style::default().fg(theme.key_hint)),
+            Span::styled(" choose  ", Style::default().fg(theme.fg_dim)),
+            Span::styled("\u{23ce}", Style::default().fg(theme.key_hint)),
+            Span::styled(" move  ", Style::default().fg(theme.fg_dim)),
+            Span::styled("Esc", Style::default().fg(theme.key_hint)),
+            Span::styled(" cancel", Style::default().fg(theme.fg_dim)),
+        ])),
+        Rect::new(inner.x, hy, inner.width, 1),
+    );
+}
+
 // --- Confirm Delete Dialog ---
 
 pub fn draw_confirm_delete(f: &mut Frame, app: &App, target: &DeleteTarget) {
@@ -1007,6 +1062,8 @@ pub fn draw_help(f: &mut Frame, app: &App) {
         help_line("    Tab", "Switch between panes", key, desc),
         help_line("    Enter/Space", "Toggle task done", key, desc),
         help_line("    p", "Pin/unpin task to top", key, desc),
+        help_line("    m", "Move task to another project", key, desc),
+        help_line("    t", "Start/stop timer on task", key, desc),
         Line::from(""),
         Line::from(Span::styled("  Actions", section)),
         help_line("    n", "New project or task", key, desc),

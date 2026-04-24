@@ -56,6 +56,21 @@ impl ChecklistItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeSession {
+    pub started_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
+}
+
+impl TimeSession {
+    pub fn new_started() -> Self {
+        Self {
+            started_at: Utc::now(),
+            ended_at: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: Uuid,
     pub project_id: Uuid,
@@ -75,6 +90,8 @@ pub struct Task {
     /// True only if the user explicitly moved this task. Controls ↕ indicator.
     #[serde(default)]
     pub pinned: bool,
+    #[serde(default)]
+    pub time_sessions: Vec<TimeSession>,
 }
 
 impl Task {
@@ -92,6 +109,7 @@ impl Task {
             checklist: vec![],
             position: None,
             pinned: false,
+            time_sessions: vec![],
         }
     }
 }

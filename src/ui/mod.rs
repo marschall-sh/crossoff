@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{ActivePane, App, InputMode};
+use crate::app::{format_duration_compact, ActivePane, App, InputMode};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let theme = app.theme;
@@ -42,6 +42,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         InputMode::LabelPicker(state) => dialogs::draw_label_picker(f, app, state),
         InputMode::ChecklistEditor(state) => dialogs::draw_checklist_editor(f, app, state),
         InputMode::Search(state) => dialogs::draw_search(f, app, state),
+        InputMode::MoveTask(state) => dialogs::draw_move_task(f, app, state),
         InputMode::ConfirmDelete(target) => dialogs::draw_confirm_delete(f, app, target),
         InputMode::Help => dialogs::draw_help(f, app),
         InputMode::Normal => {}
@@ -130,6 +131,24 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         ));
         stats_spans.push(Span::styled(" overdue", Style::default().fg(theme.error)));
     }
+    if let Some((title, seconds)) = app.running_task_summary() {
+        let display_title = if title.chars().count() > 20 {
+            format!("{}…", title.chars().take(20).collect::<String>())
+        } else {
+            title
+        };
+        stats_spans.push(Span::styled("  ", Style::default()));
+        stats_spans.push(Span::styled("●", Style::default().fg(theme.accent)));
+        stats_spans.push(Span::styled(" ", Style::default()));
+        stats_spans.push(Span::styled(display_title, Style::default().fg(theme.fg)));
+        stats_spans.push(Span::styled(" ", Style::default()));
+        stats_spans.push(Span::styled(
+            format_duration_compact(seconds),
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
 
     // Key hints
     let hint_spans = match app.active_pane {
@@ -149,7 +168,9 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
                 ("n", "new"),
                 ("e", "edit"),
                 ("d", "del"),
+                ("m", "move"),
                 ("p", "pin"),
+                ("t", "timer"),
                 ("/", "search"),
                 ("?", "help"),
             ],

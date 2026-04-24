@@ -5,7 +5,9 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use uuid::Uuid;
 
 use crate::config;
-use crate::model::{AppData, ChecklistItem, Label, Project, Task, LABEL_COLOR_NAMES};
+use crate::model::{
+    AppData, ChecklistItem, Label, Project, Task, TimeSession, LABEL_COLOR_NAMES,
+};
 use crate::store;
 use crate::theme::{self, Theme};
 
@@ -239,6 +241,11 @@ pub struct SearchState {
     pub selected: usize,
 }
 
+pub struct MoveTaskState {
+    pub task_id: Uuid,
+    pub index: usize,
+}
+
 pub struct SearchResult {
     pub task_id: Uuid,
     pub project_id: Uuid,
@@ -270,6 +277,7 @@ pub enum InputMode {
     LabelPicker(LabelPickerState),
     ChecklistEditor(ChecklistEditorState),
     Search(SearchState),
+    MoveTask(MoveTaskState),
     ConfirmDelete(DeleteTarget),
     Help,
 }
@@ -394,6 +402,7 @@ impl App {
             InputMode::LabelPicker(_) => self.handle_label_picker_key(key),
             InputMode::ChecklistEditor(_) => self.handle_checklist_editor_key(key),
             InputMode::Search(_) => self.handle_search_key(key),
+            InputMode::MoveTask(_) => self.handle_move_task_key(key),
             InputMode::ConfirmDelete(_) => self.handle_confirm_delete_key(key),
             InputMode::Help => self.handle_help_key(key),
         }
@@ -435,9 +444,13 @@ impl App {
             KeyCode::Char('p') if self.active_pane == ActivePane::Tasks => {
                 self.toggle_task_pin();
             }
+            KeyCode::Char('t') if self.active_pane == ActivePane::Tasks => {
+                self.toggle_task_timer();
+            }
             KeyCode::Char('n') => self.start_new(),
             KeyCode::Char('e') => self.start_edit(),
             KeyCode::Char('d') => self.start_delete(),
+            KeyCode::Char('m') if self.active_pane == ActivePane::Tasks => self.start_move_task(),
             KeyCode::Char('/') => self.open_search(),
             KeyCode::Enter | KeyCode::Char(' ') => self.action_enter(),
             _ => {}
@@ -635,18 +648,70 @@ impl App {
         }
     }
 
+    fn start_move_task(&mut self) {
+        let Some(current_project) = self.selected_project().map(|p| p.id) else {
+            return;
+        };
+        let task_info = {
+            let tasks = self.tasks_for_selected_project();
+            tasks.get(self.task_index).map(|t| t.id)
+        };
+        let Some(task_id) = task_info else {
+            return;
+        };
+        let index = self
+            .data
+            .projects
+            .iter()
+            .position(|p| p.id == current_project)
+            .unwrap_or(0);
+        self.input_mode = InputMode::MoveTask(MoveTaskState { task_id, index });
+    }
+
     fn toggle_task_done(&mut self) {
         let task_id = {
             let tasks = self.tasks_for_selected_project();
             tasks.get(self.task_index).map(|t| t.id)
         };
         if let Some(id) = task_id {
+            let now = Utc::now();
             if let Some(task) = self.data.tasks.iter_mut().find(|t| t.id == id) {
                 task.done = !task.done;
-                task.done_at = if task.done { Some(Utc::now()) } else { None };
+                task.done_at = if task.done { Some(now) } else { None };
+                if task.done {
+                    stop_running_session(task, now);
+                }
             }
             let _ = self.save();
         }
+    }
+
+    fn toggle_task_timer(&mut self) {
+        let task_id = {
+            let tasks = self.tasks_for_selected_project();
+            tasks.get(self.task_index).filter(|t| !t.done).map(|t| t.id)
+        };
+        let Some(id) = task_id else {
+            return;
+        };
+
+        let now = Utc::now();
+        let is_running = self.is_task_running(id);
+
+        for task in &mut self.data.tasks {
+            if task.id == id {
+                if is_running {
+                    stop_running_session(task, now);
+                } else {
+                    stop_running_session(task, now);
+                    task.time_sessions.push(TimeSession::new_started());
+                }
+            } else {
+                stop_running_session(task, now);
+            }
+        }
+
+        let _ = self.save();
     }
 
     fn toggle_task_pin(&mut self) {
@@ -1281,6 +1346,74 @@ impl App {
         }
     }
 
+    // --- Move Task Mode ---
+
+    fn handle_move_task_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input_mode = InputMode::Normal;
+            }
+            KeyCode::Enter => {
+                self.confirm_move_task();
+            }
+            _ => {
+                if let InputMode::MoveTask(ref mut state) = self.input_mode {
+                    match key.code {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if state.index > 0 {
+                                state.index -= 1;
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if state.index < self.data.projects.len().saturating_sub(1) {
+                                state.index += 1;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    fn confirm_move_task(&mut self) {
+        let (task_id, dest_project_id) = match &self.input_mode {
+            InputMode::MoveTask(state) => self
+                .data
+                .projects
+                .get(state.index)
+                .map(|p| (state.task_id, p.id)),
+            _ => None,
+        }
+        .unwrap_or_else(|| {
+            self.input_mode = InputMode::Normal;
+            (Uuid::nil(), Uuid::nil())
+        });
+
+        if task_id.is_nil() || dest_project_id.is_nil() {
+            return;
+        }
+
+        if let Some(task) = self.data.tasks.iter_mut().find(|t| t.id == task_id) {
+            task.project_id = dest_project_id;
+            task.pinned = false;
+            task.position = None;
+        }
+
+        if let Some(pi) = self.data.projects.iter().position(|p| p.id == dest_project_id) {
+            self.project_index = pi;
+        }
+        if let Some(ti) = self.tasks_for_selected_project().iter().position(|t| t.id == task_id) {
+            self.task_index = ti;
+        } else {
+            self.task_index = 0;
+        }
+        self.active_pane = ActivePane::Tasks;
+        self.input_mode = InputMode::Normal;
+        self.detail_scroll = 0;
+        let _ = self.save();
+    }
+
     // --- Confirm Delete Mode ---
 
     fn handle_confirm_delete_key(&mut self, key: KeyEvent) {
@@ -1483,6 +1616,53 @@ impl App {
         self.input_mode = InputMode::Normal;
     }
 
+    pub fn is_task_running(&self, task_id: Uuid) -> bool {
+        self.data
+            .tasks
+            .iter()
+            .find(|t| t.id == task_id)
+            .map(|t| t.time_sessions.iter().any(|s| s.ended_at.is_none()))
+            .unwrap_or(false)
+    }
+
+    pub fn task_tracked_seconds(&self, task_id: Uuid) -> i64 {
+        let now = Utc::now();
+        self.data
+            .tasks
+            .iter()
+            .find(|t| t.id == task_id)
+            .map(|t| {
+                t.time_sessions
+                    .iter()
+                    .map(|s| {
+                        let end = s.ended_at.unwrap_or(now);
+                        (end - s.started_at).num_seconds().max(0)
+                    })
+                    .sum()
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn running_task_summary(&self) -> Option<(String, i64)> {
+        let now = Utc::now();
+        self.data.tasks.iter().find_map(|task| {
+            task.time_sessions
+                .iter()
+                .any(|s| s.ended_at.is_none())
+                .then(|| {
+                    let seconds = task
+                        .time_sessions
+                        .iter()
+                        .map(|s| {
+                            let end = s.ended_at.unwrap_or(now);
+                            (end - s.started_at).num_seconds().max(0)
+                        })
+                        .sum();
+                    (task.title.clone(), seconds)
+                })
+        })
+    }
+
     // --- Help Mode ---
 
     fn handle_help_key(&mut self, _key: KeyEvent) {
@@ -1548,7 +1728,25 @@ pub struct FuzzyMatch {
     pub matched_indices: Vec<usize>,
 }
 
-pub fn fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
+pub fn stop_running_session(task: &mut Task, now: chrono::DateTime<Utc>) {
+    if let Some(session) = task.time_sessions.iter_mut().rev().find(|s| s.ended_at.is_none()) {
+        session.ended_at = Some(now);
+    }
+}
+
+pub fn format_duration_compact(total_seconds: i64) -> String {
+    let total_seconds = total_seconds.max(0);
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+
+    if hours > 0 {
+        format!("{}h {:02}m", hours, minutes)
+    } else {
+        format!("{}m", minutes)
+    }
+}
+
+fn fuzzy_match(query: &str, target: &str) -> Option<FuzzyMatch> {
     let query_chars: Vec<char> = query.to_lowercase().chars().collect();
     let target_chars: Vec<char> = target.to_lowercase().chars().collect();
 
