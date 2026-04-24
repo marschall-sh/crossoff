@@ -1,68 +1,54 @@
 Output demo/demo.gif
 
-Set Width 900
-Set Height 500
-Set FontSize 13
-Set Padding 0
+Set Width 1200
+Set Height 760
+Set FontSize 16
+Set Padding 20
 Set PlaybackSpeed 1.0
-Set TypingSpeed 80ms
+Set TypingSpeed 70ms
 
-# Hidden setup: seed data and launch — recording starts with TUI already open
 Hide
-Type "mkdir -p /tmp/crossoff-demo/crossoff && cp demo/seed.json /tmp/crossoff-demo/crossoff/data.json"
+Type "rm -rf /tmp/crossoff-demo && mkdir -p /tmp/crossoff-demo/data/crossoff /tmp/crossoff-demo/config && cp demo/seed.json /tmp/crossoff-demo/data/crossoff/data.json"
 Enter
 Sleep 300ms
-Type "XDG_DATA_HOME=/tmp/crossoff-demo ./target/release/crossoff"
+Type "XDG_DATA_HOME=/tmp/crossoff-demo/data XDG_CONFIG_HOME=/tmp/crossoff-demo/config ./target/release/crossoff"
 Enter
-Sleep 2000ms
+Sleep 1800ms
 Show
 
-# Switch to Tasks pane
+# Start a timer on the pinned task
 Tab
 Sleep 700ms
+Type "t"
+Sleep 1200ms
 
-# Navigate through tasks — detail pane updates live
+# Open details on another task
 Down
 Sleep 500ms
-Down
-Sleep 500ms
-Up
-Sleep 400ms
-
-# Open Detail pane — shows description + checklist
 Tab
-Sleep 700ms
+Sleep 900ms
 Down
-Sleep 400ms
-Down
-Sleep 500ms
-
-# Back to Tasks
-Tab
 Sleep 600ms
-
-# Create a new task
-Type "n"
-Sleep 500ms
-Type "Ship v0.1.0 release"
-Sleep 300ms
-Ctrl+S
-Sleep 1000ms
-
-# Navigate to the overdue task and mark it done
 Up
+Sleep 500ms
+
+# Move the selected task to Work
+Tab
+Sleep 700ms
+Type "m"
+Sleep 700ms
+Down
 Sleep 400ms
 Enter
-Sleep 1400ms
+Sleep 1200ms
 
-# Fuzzy search
+# Search across tasks
 Type "/"
 Sleep 400ms
-Type "doc"
-Sleep 1200ms
+Type "release"
+Sleep 1000ms
 Escape
-Sleep 700ms
+Sleep 600ms
 
-# Quit
 Type "q"
 Sleep 500ms
