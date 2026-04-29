@@ -6,8 +6,9 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{
-    days_in_month, App, ChecklistEditorState, DatePickerState, DeleteTarget, LabelCreateField,
-    LabelPickerState, MoveTaskState, ProjectEditState, SearchState, TaskEditState, TaskField,
+    days_in_month, App, ChecklistEditorState, DatePickerState, DeleteTarget, DescriptionMode,
+    LabelCreateField, LabelPickerState, MoveTaskState, ProjectEditState, SearchState,
+    TaskEditState, TaskField,
 };
 use crate::model::{label_color_rgb, LABEL_COLOR_NAMES};
 
@@ -115,8 +116,20 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
     // --- Description (multi-line textarea) ---
     let desc_active = state.active_field == TaskField::Description;
     let desc_label = if desc_active { active_s } else { label_s };
+    let desc_mode = match state.description_mode {
+        DescriptionMode::Insert => Some((" INSERT ", theme.success, theme.bg)),
+        DescriptionMode::Normal => Some((" VIM ", theme.accent, theme.project_count_fg)),        DescriptionMode::VisualChar { .. } => Some((" VISUAL ", theme.warning, theme.bg)),
+        DescriptionMode::VisualLine { .. } => Some((" V-LINE ", theme.warning, theme.bg)),
+    };
+    let mut desc_label_spans = vec![Span::styled("  Description", desc_label)];
+    if desc_active {
+        if let Some((label, bg, fg)) = desc_mode {
+            desc_label_spans.push(Span::raw(" "));
+            desc_label_spans.push(Span::styled(label, Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD)));
+        }
+    }
     f.render_widget(
-        Paragraph::new(Span::styled("  Description", desc_label)),
+        Paragraph::new(Line::from(desc_label_spans)),
         Rect::new(inner.x, y + 4, inner.width, 1),
     );
 
@@ -140,21 +153,14 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
         }
     }
 
-    let display_text = if state.description.text.is_empty() && !desc_active {
-        "Type a description..."
+    if state.description.text.is_empty() && !desc_active {
+        f.render_widget(
+            Paragraph::new("Type a description...").style(Style::default().fg(theme.fg_dim)),
+            text_area,
+        );
     } else {
-        &state.description.text
-    };
-    let desc_fg = if state.description.text.is_empty() && !desc_active {
-        theme.fg_dim
-    } else {
-        theme.detail_value
-    };
-
-    let desc_para = Paragraph::new(display_text)
-        .style(Style::default().fg(desc_fg))
-        .scroll((scroll_y, scroll_x));
-    f.render_widget(desc_para, text_area);
+        draw_description_editor(f, app, state, text_area, scroll_y, scroll_x);
+    }
 
     if desc_active {
         f.set_cursor_position((
@@ -219,18 +225,137 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
     }
 
     // --- Hints ---
-    let hints = Line::from(vec![
-        Span::styled("  ^S", Style::default().fg(theme.key_hint)),
-        Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
-        Span::styled("Tab", Style::default().fg(theme.key_hint)),
-        Span::styled(" next  ", Style::default().fg(theme.fg_dim)),
-        Span::styled("Esc", Style::default().fg(theme.key_hint)),
-        Span::styled(" cancel", Style::default().fg(theme.fg_dim)),
-    ]);
+    let hints = if desc_active {
+        match state.description_mode {
+            DescriptionMode::Insert => Line::from(vec![
+                Span::styled("  ^S", Style::default().fg(theme.key_hint)),
+                Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("^G", Style::default().fg(theme.key_hint)),
+                Span::styled(" vim  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("Tab", Style::default().fg(theme.key_hint)),
+                Span::styled(" next  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("Esc", Style::default().fg(theme.key_hint)),
+                Span::styled(" cancel", Style::default().fg(theme.fg_dim)),
+            ]),
+            DescriptionMode::Normal => Line::from(vec![
+                Span::styled("  VIM", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled("  ^S", Style::default().fg(theme.key_hint)),
+                Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("v", Style::default().fg(theme.key_hint)),
+                Span::styled(" visual  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("V", Style::default().fg(theme.key_hint)),
+                Span::styled(" line  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("dd", Style::default().fg(theme.key_hint)),
+                Span::styled(" delete line  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("Enter", Style::default().fg(theme.key_hint)),
+                Span::styled(" newline  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("Esc", Style::default().fg(theme.key_hint)),
+                Span::styled(" exit", Style::default().fg(theme.fg_dim)),
+            ]),
+            DescriptionMode::VisualChar { .. } | DescriptionMode::VisualLine { .. } => Line::from(vec![
+                Span::styled("  VIM", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled("  ^S", Style::default().fg(theme.key_hint)),
+                Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("y", Style::default().fg(theme.key_hint)),
+                Span::styled(" yank  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("d", Style::default().fg(theme.key_hint)),
+                Span::styled(" delete  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("p", Style::default().fg(theme.key_hint)),
+                Span::styled(" replace  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("Enter", Style::default().fg(theme.key_hint)),
+                Span::styled(" newline  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("Esc", Style::default().fg(theme.key_hint)),
+                Span::styled(" normal", Style::default().fg(theme.fg_dim)),
+            ]),
+        }
+    } else {
+        Line::from(vec![
+            Span::styled("  ^S", Style::default().fg(theme.key_hint)),
+            Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
+            Span::styled("^G", Style::default().fg(theme.key_hint)),
+            Span::styled(" vim  ", Style::default().fg(theme.fg_dim)),
+            Span::styled("Tab", Style::default().fg(theme.key_hint)),
+            Span::styled(" next  ", Style::default().fg(theme.fg_dim)),
+            Span::styled("Esc", Style::default().fg(theme.key_hint)),
+            Span::styled(" cancel", Style::default().fg(theme.fg_dim)),
+        ])
+    };
     f.render_widget(
         Paragraph::new(hints),
         Rect::new(inner.x, inner.y + inner.height.saturating_sub(1), inner.width, 1),
     );
+}
+
+fn draw_description_editor(
+    f: &mut Frame,
+    app: &App,
+    state: &TaskEditState,
+    area: Rect,
+    scroll_y: u16,
+    scroll_x: u16,
+) {
+    let theme = app.theme;
+    let lines: Vec<&str> = if state.description.text.is_empty() {
+        vec![""]
+    } else {
+        state.description.text.split('\n').collect()
+    };
+
+    let selection = match state.description_mode {
+        DescriptionMode::Insert | DescriptionMode::Normal => None,
+        DescriptionMode::VisualChar { anchor } => Some(normalized_selection(&state.description.text, anchor, state.description.cursor, false)),
+        DescriptionMode::VisualLine { anchor } => Some(normalized_selection(&state.description.text, anchor, state.description.cursor, true)),
+    };
+
+    for row in 0..area.height {
+        let line_idx = scroll_y as usize + row as usize;
+        if let Some(line) = lines.get(line_idx) {
+            let line_start = absolute_line_start(&state.description.text, line_idx);
+            let visible = line.chars().skip(scroll_x as usize).take(area.width as usize);
+            let mut spans = Vec::new();
+            for (offset, ch) in visible.enumerate() {
+                let byte_index = line_start + nth_char_byte_index(line, scroll_x as usize + offset);
+                let selected = selection
+                    .map(|(start, end)| byte_index >= start && byte_index < end)
+                    .unwrap_or(false);
+                let style = if selected {
+                    Style::default().bg(theme.accent).fg(theme.project_count_fg)
+                } else {
+                    Style::default().fg(theme.detail_value)
+                };
+                spans.push(Span::styled(ch.to_string(), style));
+            }
+            f.render_widget(Paragraph::new(Line::from(spans)), Rect::new(area.x, area.y + row, area.width, 1));
+        }
+    }
+}
+
+fn absolute_line_start(text: &str, target_line: usize) -> usize {
+    let mut line = 0;
+    let mut start = 0;
+    for (i, ch) in text.char_indices() {
+        if line == target_line {
+            return start;
+        }
+        if ch == '\n' {
+            line += 1;
+            start = i + 1;
+        }
+    }
+    start
+}
+
+fn nth_char_byte_index(text: &str, n: usize) -> usize {
+    text.char_indices().nth(n).map(|(i, _)| i).unwrap_or(text.len())
+}
+
+fn normalized_selection(text: &str, a: usize, b: usize, line_mode: bool) -> (usize, usize) {
+    let (mut start, mut end) = if a <= b { (a, b) } else { (b, a) };
+    if line_mode {
+        start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        end = text[end..].find('\n').map(|i| end + i).unwrap_or(text.len());
+    }
+    (start, end)
 }
 
 /// Compute (col, row) cursor position within explicit newline-separated text.
@@ -1076,6 +1201,16 @@ pub fn draw_help(f: &mut Frame, app: &App) {
         help_line("    Tab / Shift+Tab", "Navigate fields", key, desc),
         help_line("    Enter", "Confirm / Open sub-editor", key, desc),
         help_line("    Esc", "Cancel / Go back", key, desc),
+        Line::from(""),
+        Line::from(Span::styled("  Description Vim Mode", section)),
+        help_line("    Ctrl+G", "Toggle vim mode", key, desc),
+        help_line("    i", "Return to typing / insert mode", key, desc),
+        help_line("    v / V", "Visual char / line selection", key, desc),
+        help_line("    y / p", "Yank / paste selection", key, desc),
+        help_line("    d / dd", "Delete selection / delete line", key, desc),
+        help_line("    h j k l", "Move cursor in vim mode", key, desc),
+        help_line("    Enter", "Insert newline and return to insert mode", key, desc),
+        help_line("    Esc", "Exit vim mode / leave visual selection", key, desc),
         Line::from(""),
         Line::from(Span::styled("  Date Picker", section)),
         help_line("    \u{2190}/\u{2192}", "Previous/next day", key, desc),

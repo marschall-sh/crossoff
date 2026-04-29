@@ -11,6 +11,10 @@ use crate::model::{
 use crate::store;
 use crate::theme::{self, Theme};
 
+fn selection_bounds(a: usize, b: usize) -> (usize, usize) {
+    if a <= b { (a, b) } else { (b, a) }
+}
+
 // --- Text Input Helper ---
 
 #[derive(Clone, Debug)]
@@ -167,6 +171,41 @@ fn move_cursor_down(input: &mut TextInput) {
     input.cursor = next_line_start + byte_offset;
 }
 
+fn line_start(text: &str, cursor: usize) -> usize {
+    text[..cursor].rfind('\n').map(|i| i + 1).unwrap_or(0)
+}
+
+fn line_end(text: &str, cursor: usize) -> usize {
+    text[cursor..].find('\n').map(|i| cursor + i).unwrap_or(text.len())
+}
+
+fn move_cursor_line_start(input: &mut TextInput) {
+    input.cursor = line_start(&input.text, input.cursor);
+}
+
+fn move_cursor_line_end(input: &mut TextInput) {
+    input.cursor = line_end(&input.text, input.cursor);
+}
+
+fn line_selection_bounds(text: &str, a: usize, b: usize) -> (usize, usize) {
+    let (start, end) = selection_bounds(a, b);
+    (line_start(text, start), line_end(text, end))
+}
+
+fn delete_range(input: &mut TextInput, start: usize, end: usize) {
+    let (start, end) = selection_bounds(start, end);
+    if start < end {
+        input.text.drain(start..end);
+        input.cursor = start;
+    }
+}
+
+fn insert_text(input: &mut TextInput, text: &str) {
+    for c in text.chars() {
+        input.insert_char(c);
+    }
+}
+
 // --- App State Enums ---
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -192,9 +231,19 @@ pub struct ProjectEditState {
 }
 
 #[derive(Clone, Debug)]
+pub enum DescriptionMode {
+    Insert,
+    Normal,
+    VisualChar { anchor: usize },
+    VisualLine { anchor: usize },
+}
+
+#[derive(Clone, Debug)]
 pub struct TaskEditState {
     pub title: TextInput,
     pub description: TextInput,
+    pub description_mode: DescriptionMode,
+    pub description_pending_d: bool,
     pub due_date: Option<NaiveDate>,
     pub label_ids: Vec<Uuid>,
     pub checklist: Vec<ChecklistItem>,
@@ -292,6 +341,7 @@ pub struct App {
     pub detail_scroll: u16,
     pub input_mode: InputMode,
     pub theme: &'static Theme,
+    pub yank_buffer: String,
     pub should_quit: bool,
 }
 
@@ -314,6 +364,7 @@ impl App {
             input_mode: InputMode::Normal,
             theme,
             detail_scroll: 0,
+            yank_buffer: String::new(),
             should_quit: false,
         };
         app.sort_projects();
@@ -559,6 +610,8 @@ impl App {
                     self.input_mode = InputMode::TaskEdit(TaskEditState {
                         title: TextInput::empty(),
                         description: TextInput::empty(),
+                        description_mode: DescriptionMode::Insert,
+                        description_pending_d: false,
                         due_date: None,
                         label_ids: vec![],
                         checklist: vec![],
@@ -603,6 +656,8 @@ impl App {
                     self.input_mode = InputMode::TaskEdit(TaskEditState {
                         title: TextInput::new(title),
                         description: TextInput::new(description),
+                        description_mode: DescriptionMode::Insert,
+                        description_pending_d: false,
                         due_date,
                         label_ids,
                         checklist,
@@ -809,7 +864,16 @@ impl App {
             self.save_task();
             return;
         }
+        let intercept_esc = matches!(
+            &self.input_mode,
+            InputMode::TaskEdit(state)
+                if state.active_field == TaskField::Description
+                    && !matches!(state.description_mode, DescriptionMode::Insert)
+        );
         match key.code {
+            KeyCode::Esc if intercept_esc => {
+                self.handle_description_key(key);
+            }
             KeyCode::Esc => {
                 self.input_mode = InputMode::Normal;
             }
@@ -826,11 +890,9 @@ impl App {
                 if let InputMode::TaskEdit(ref mut state) = self.input_mode {
                     match state.active_field {
                         TaskField::Title => apply_text_input(&mut state.title, key),
-                        TaskField::Description => match key.code {
-                            KeyCode::Up => move_cursor_up(&mut state.description),
-                            KeyCode::Down => move_cursor_down(&mut state.description),
-                            _ => apply_text_input(&mut state.description, key),
-                        },
+                        TaskField::Description => {
+                            self.handle_description_key(key);
+                        }
                         TaskField::DueDate => {
                             if matches!(key.code, KeyCode::Backspace | KeyCode::Delete) {
                                 state.due_date = None;
@@ -843,16 +905,189 @@ impl App {
         }
     }
 
+    fn handle_description_key(&mut self, key: KeyEvent) {
+        let InputMode::TaskEdit(state) = &mut self.input_mode else {
+            return;
+        };
+
+        let visual = state.description_mode.clone();
+        match visual {
+            DescriptionMode::Insert => match key.code {
+                KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    state.description_mode = DescriptionMode::Normal;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Up => move_cursor_up(&mut state.description),
+                KeyCode::Down => move_cursor_down(&mut state.description),
+                _ => {
+                    state.description_pending_d = false;
+                    apply_text_input(&mut state.description, key)
+                }
+            },
+            DescriptionMode::Normal => match key.code {
+                KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    state.description_mode = DescriptionMode::Insert;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Char('i') => {
+                    state.description_mode = DescriptionMode::Insert;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Char('v') => {
+                    state.description_pending_d = false;
+                    state.description_mode = DescriptionMode::VisualChar {
+                        anchor: state.description.cursor,
+                    };
+                }
+                KeyCode::Char('V') => {
+                    state.description_pending_d = false;
+                    state.description_mode = DescriptionMode::VisualLine {
+                        anchor: state.description.cursor,
+                    };
+                }
+                KeyCode::Char('d') => {
+                    if state.description_pending_d {
+                        let start = line_start(&state.description.text, state.description.cursor);
+                        let mut end = line_end(&state.description.text, state.description.cursor);
+                        if end < state.description.text.len() {
+                            end += 1;
+                        }
+                        delete_range(&mut state.description, start, end);
+                        state.description_pending_d = false;
+                    } else {
+                        state.description_pending_d = true;
+                    }
+                }
+                KeyCode::Char('p') => {
+                    state.description_pending_d = false;
+                    insert_text(&mut state.description, &self.yank_buffer)
+                }
+                KeyCode::Char('h') | KeyCode::Left => {
+                    state.description_pending_d = false;
+                    state.description.move_left()
+                }
+                KeyCode::Char('l') | KeyCode::Right => {
+                    state.description_pending_d = false;
+                    state.description.move_right()
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    state.description_pending_d = false;
+                    move_cursor_up(&mut state.description)
+                }
+                KeyCode::Char('j') | KeyCode::Down => {
+                    state.description_pending_d = false;
+                    move_cursor_down(&mut state.description)
+                }
+                KeyCode::Char('0') | KeyCode::Home => {
+                    state.description_pending_d = false;
+                    move_cursor_line_start(&mut state.description)
+                }
+                KeyCode::Char('$') | KeyCode::End => {
+                    state.description_pending_d = false;
+                    move_cursor_line_end(&mut state.description)
+                }
+                KeyCode::Esc => {
+                    state.description_mode = DescriptionMode::Insert;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Enter => {
+                    state.description_mode = DescriptionMode::Insert;
+                    state.description_pending_d = false;
+                    state.description.insert_char('\n');
+                }
+                _ => state.description_pending_d = false,
+            },
+            DescriptionMode::VisualChar { anchor } => match key.code {
+                KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    state.description_mode = DescriptionMode::Insert;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Esc => {
+                    state.description_mode = DescriptionMode::Normal;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Enter => {
+                    state.description_mode = DescriptionMode::Insert;
+                    state.description_pending_d = false;
+                    state.description.insert_char('\n');
+                }
+                KeyCode::Char('y') => {
+                    let (start, end) = selection_bounds(anchor, state.description.cursor);
+                    self.yank_buffer = state.description.text[start..end].to_string();
+                    state.description.cursor = start;
+                    state.description_mode = DescriptionMode::Normal;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Char('d') | KeyCode::Char('p') => {
+                    let (start, end) = selection_bounds(anchor, state.description.cursor);
+                    delete_range(&mut state.description, start, end);
+                    if matches!(key.code, KeyCode::Char('p')) {
+                        insert_text(&mut state.description, &self.yank_buffer);
+                    }
+                    state.description_mode = DescriptionMode::Normal;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Char('h') | KeyCode::Left => state.description.move_left(),
+                KeyCode::Char('l') | KeyCode::Right => state.description.move_right(),
+                KeyCode::Char('k') | KeyCode::Up => move_cursor_up(&mut state.description),
+                KeyCode::Char('j') | KeyCode::Down => move_cursor_down(&mut state.description),
+                KeyCode::Char('0') | KeyCode::Home => move_cursor_line_start(&mut state.description),
+                KeyCode::Char('$') | KeyCode::End => move_cursor_line_end(&mut state.description),
+                _ => {}
+            },
+            DescriptionMode::VisualLine { anchor } => match key.code {
+                KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    state.description_mode = DescriptionMode::Insert;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Esc => {
+                    state.description_mode = DescriptionMode::Normal;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Enter => {
+                    state.description_mode = DescriptionMode::Insert;
+                    state.description_pending_d = false;
+                    state.description.insert_char('\n');
+                }
+                KeyCode::Char('y') => {
+                    let (start, end) = line_selection_bounds(&state.description.text, anchor, state.description.cursor);
+                    self.yank_buffer = state.description.text[start..end].to_string();
+                    state.description.cursor = start;
+                    state.description_mode = DescriptionMode::Normal;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Char('d') | KeyCode::Char('p') => {
+                    let (start, end) = line_selection_bounds(&state.description.text, anchor, state.description.cursor);
+                    delete_range(&mut state.description, start, end);
+                    if matches!(key.code, KeyCode::Char('p')) {
+                        insert_text(&mut state.description, &self.yank_buffer);
+                    }
+                    state.description_mode = DescriptionMode::Normal;
+                    state.description_pending_d = false;
+                }
+                KeyCode::Char('h') | KeyCode::Left => state.description.move_left(),
+                KeyCode::Char('l') | KeyCode::Right => state.description.move_right(),
+                KeyCode::Char('k') | KeyCode::Up => move_cursor_up(&mut state.description),
+                KeyCode::Char('j') | KeyCode::Down => move_cursor_down(&mut state.description),
+                KeyCode::Char('0') | KeyCode::Home => move_cursor_line_start(&mut state.description),
+                KeyCode::Char('$') | KeyCode::End => move_cursor_line_end(&mut state.description),
+                _ => {}
+            },
+        }
+    }
+
     fn task_edit_enter(&mut self) {
         let field = match &self.input_mode {
             InputMode::TaskEdit(s) => s.active_field,
             _ => return,
         };
 
-        // Description: Enter inserts a newline
+        // Description: Enter inserts a newline only in insert mode
         if field == TaskField::Description {
             if let InputMode::TaskEdit(ref mut state) = self.input_mode {
-                state.description.insert_char('\n');
+                if matches!(state.description_mode, DescriptionMode::Insert) {
+                    state.description.insert_char('\n');
+                }
             }
             return;
         }
