@@ -130,12 +130,26 @@ fn draw_lane(f: &mut Frame, app: &App, area: Rect, lane: TaskLane) {
     let card_height = 5;
     let gap = 1;
     let stride = card_height + gap;
-    let visible = ((cards_area.height + gap) / stride).max(1) as usize;
+    let max_cards = ((cards_area.height + gap) / stride).max(1) as usize;
+    let max_cards_used_height = if max_cards == 0 {
+        0
+    } else {
+        (max_cards as u16 - 1) * stride + card_height
+    };
+    let has_indicator_room = cards_area.height.saturating_sub(max_cards_used_height) >= 1;
+    let reserve_more_indicator = tasks.len() > max_cards && !has_indicator_room && max_cards > 1;
+    let visible = if reserve_more_indicator {
+        max_cards.saturating_sub(1).max(1)
+    } else {
+        max_cards
+    };
     let start = if focused && app.task_index >= visible {
         app.task_index + 1 - visible
     } else {
         0
     };
+    let has_more_above = start > 0;
+    let has_more_below = start + visible < tasks.len();
 
     for (visible_i, (i, task)) in tasks
         .iter()
@@ -154,6 +168,61 @@ fn draw_lane(f: &mut Frame, app: &App, area: Rect, lane: TaskLane) {
             selected,
         );
     }
+
+    if has_more_above || has_more_below {
+        let used_height = if visible == 0 {
+            0
+        } else {
+            (visible as u16 - 1) * stride + card_height
+        };
+        let indicator_y = if cards_area.height.saturating_sub(used_height) >= 1 {
+            cards_area.y + used_height
+        } else {
+            cards_area.y + visible as u16 * stride
+        };
+        if indicator_y < cards_area.y + cards_area.height {
+            draw_more_indicator(
+                f,
+                theme,
+                Rect::new(cards_area.x, indicator_y, cards_area.width, 1),
+                has_more_above,
+                has_more_below,
+                tasks.len().saturating_sub(start + visible),
+            );
+        }
+    }
+}
+
+fn draw_more_indicator(
+    f: &mut Frame,
+    theme: &Theme,
+    area: Rect,
+    has_more_above: bool,
+    has_more_below: bool,
+    hidden_below: usize,
+) {
+    let text = match (has_more_above, has_more_below) {
+        (true, true) => format!(" ↑  {} more  ↓ ", hidden_below),
+        (true, false) => " ↑  more above ".to_string(),
+        (false, true) => format!(" {} more  ↓ ", hidden_below),
+        (false, false) => String::new(),
+    };
+    if text.is_empty() || area.width == 0 {
+        return;
+    }
+
+    let text_width = text.chars().count() as u16;
+    let x = area.x + area.width.saturating_sub(text_width) / 2;
+    f.render_widget(
+        Paragraph::new(Span::styled(
+            text,
+            Style::default()
+                .fg(theme.accent)
+                .bg(theme.header_bg)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Rect::new(x, area.y, text_width.min(area.width), 1),
+    );
 }
 
 fn draw_lane_header(
@@ -224,31 +293,34 @@ fn render_task_card(f: &mut Frame, app: &App, task: &Task, area: Rect, selected:
 
     let content_x = inner.x + 2;
     let content_width = inner.width.saturating_sub(3);
-    let priority_prefix = if task.pinned && !task.done {
-        "★ "
+    let has_priority = task.pinned && !task.done;
+    let title_max = if has_priority {
+        content_width.saturating_sub(3)
     } else {
-        ""
+        content_width
     };
-    let title = truncate(
-        &format!("{}{}", priority_prefix, task.title),
-        content_width as usize,
-    );
-    let title_color = if task.pinned && !task.done {
-        theme.warning
-    } else {
-        theme.fg
-    };
+    let title = truncate(&task.title, title_max as usize);
     let title_style = if task.done {
         Style::default()
             .fg(theme.fg_dim)
             .add_modifier(Modifier::BOLD | Modifier::CROSSED_OUT)
     } else {
-        Style::default()
-            .fg(title_color)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(theme.fg).add_modifier(Modifier::BOLD)
     };
+    let mut title_spans = vec![Span::styled(title.clone(), title_style)];
+    if has_priority {
+        let title_width = title.chars().count() as u16;
+        let padding = content_width.saturating_sub(title_width + 3) as usize;
+        title_spans.push(Span::raw(" ".repeat(padding)));
+        title_spans.push(Span::styled(
+            " P ",
+            Style::default()
+                .fg(theme.warning)
+                .bg(priority_badge_bg(theme)),
+        ));
+    }
     f.render_widget(
-        Paragraph::new(Span::styled(title, title_style)).style(Style::default().bg(bg)),
+        Paragraph::new(Line::from(title_spans)).style(Style::default().bg(bg)),
         Rect::new(content_x, inner.y, content_width, 1),
     );
 
@@ -341,6 +413,13 @@ fn task_meta_spans<'a>(app: &'a App, task: &'a Task, max_width: usize) -> Vec<Sp
     }
 
     spans
+}
+
+fn priority_badge_bg(theme: &Theme) -> Color {
+    match theme.warning {
+        Color::Rgb(r, g, b) => Color::Rgb(r / 3, g / 3, b / 3),
+        _ => theme.border,
+    }
 }
 
 fn lane_indicator_color(lane: TaskLane, theme: &Theme) -> Color {

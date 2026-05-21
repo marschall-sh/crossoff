@@ -71,7 +71,13 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         Span::raw("  "),
     ];
     if task.pinned && !task.done {
-        title_spans.push(Span::styled("★ ", Style::default().fg(theme.warning)));
+        title_spans.push(Span::styled(
+            " Priority ",
+            Style::default()
+                .fg(theme.project_count_fg)
+                .bg(theme.warning),
+        ));
+        title_spans.push(Span::raw("  "));
     }
     title_spans.push(Span::styled(task.title.clone(), title_style));
     lines.push(Line::from(title_spans));
