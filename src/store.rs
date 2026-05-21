@@ -63,9 +63,8 @@ pub fn load() -> Result<AppData> {
                         })?;
                     return Ok(backup_data);
                 }
-                return Err(primary_err).with_context(|| {
-                    format!("failed to parse {}", path.display())
-                });
+                return Err(primary_err)
+                    .with_context(|| format!("failed to parse {}", path.display()));
             }
         }
     }

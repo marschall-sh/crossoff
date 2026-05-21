@@ -6,13 +6,36 @@ use uuid::Uuid;
 
 use crate::config;
 use crate::model::{
-    AppData, ChecklistItem, Label, Project, Task, TimeSession, LABEL_COLOR_NAMES,
+    AppData, ChecklistItem, Label, Project, Task, TaskLane, TimeSession, LABEL_COLOR_NAMES,
 };
 use crate::store;
 use crate::theme::{self, Theme};
 
 fn selection_bounds(a: usize, b: usize) -> (usize, usize) {
-    if a <= b { (a, b) } else { (b, a) }
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+fn sort_tasks(tasks: &mut Vec<&Task>) {
+    tasks.sort_by(|a, b| match (a.done, b.done) {
+        (false, true) => Ordering::Less,
+        (true, false) => Ordering::Greater,
+        (true, true) => b.done_at.cmp(&a.done_at),
+        (false, false) => match (a.position, b.position) {
+            (Some(ap), Some(bp)) => ap.cmp(&bp),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => match (a.due_date, b.due_date) {
+                (Some(ad), Some(bd)) => ad.cmp(&bd),
+                (Some(_), None) => Ordering::Less,
+                (None, Some(_)) => Ordering::Greater,
+                (None, None) => a.created_at.cmp(&b.created_at),
+            },
+        },
+    });
 }
 
 // --- Text Input Helper ---
@@ -176,7 +199,10 @@ fn line_start(text: &str, cursor: usize) -> usize {
 }
 
 fn line_end(text: &str, cursor: usize) -> usize {
-    text[cursor..].find('\n').map(|i| cursor + i).unwrap_or(text.len())
+    text[cursor..]
+        .find('\n')
+        .map(|i| cursor + i)
+        .unwrap_or(text.len())
 }
 
 fn move_cursor_line_start(input: &mut TextInput) {
@@ -210,7 +236,6 @@ fn insert_text(input: &mut TextInput, text: &str) {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ActivePane {
-    Projects,
     Tasks,
     Detail,
 }
@@ -222,12 +247,6 @@ pub enum TaskField {
     DueDate,
     Labels,
     Checklist,
-}
-
-#[derive(Clone, Debug)]
-pub struct ProjectEditState {
-    pub input: TextInput,
-    pub editing_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug)]
@@ -290,11 +309,6 @@ pub struct SearchState {
     pub selected: usize,
 }
 
-pub struct MoveTaskState {
-    pub task_id: Uuid,
-    pub index: usize,
-}
-
 pub struct SearchResult {
     pub task_id: Uuid,
     pub project_id: Uuid,
@@ -307,26 +321,16 @@ pub struct SearchResult {
 }
 
 pub enum DeleteTarget {
-    Project {
-        id: Uuid,
-        name: String,
-        task_count: usize,
-    },
-    Task {
-        id: Uuid,
-        title: String,
-    },
+    Task { id: Uuid, title: String },
 }
 
 pub enum InputMode {
     Normal,
-    ProjectEdit(ProjectEditState),
     TaskEdit(TaskEditState),
     DatePicker(DatePickerState),
     LabelPicker(LabelPickerState),
     ChecklistEditor(ChecklistEditorState),
     Search(SearchState),
-    MoveTask(MoveTaskState),
     ConfirmDelete(DeleteTarget),
     Help,
 }
@@ -338,6 +342,7 @@ pub struct App {
     pub active_pane: ActivePane,
     pub project_index: usize,
     pub task_index: usize,
+    pub task_lane: TaskLane,
     pub detail_scroll: u16,
     pub input_mode: InputMode,
     pub theme: &'static Theme,
@@ -356,11 +361,16 @@ impl App {
                 .insert(0, Project::new("Inbox".to_string(), true));
         }
 
+        for task in &mut data.tasks {
+            task.lane = if task.done { TaskLane::Done } else { task.lane };
+        }
+
         let mut app = Self {
             data,
-            active_pane: ActivePane::Projects,
+            active_pane: ActivePane::Tasks,
             project_index: 0,
             task_index: 0,
+            task_lane: TaskLane::Inbox,
             input_mode: InputMode::Normal,
             theme,
             detail_scroll: 0,
@@ -368,6 +378,9 @@ impl App {
             should_quit: false,
         };
         app.sort_projects();
+        if let Some(inbox_index) = app.data.projects.iter().position(|p| p.is_inbox) {
+            app.project_index = inbox_index;
+        }
         Ok(app)
     }
 
@@ -379,25 +392,24 @@ impl App {
         let now = Utc::now();
         let before = self.data.tasks.len();
         self.data.tasks.retain(|t| match t.done_at {
-            Some(done_at) => now.signed_duration_since(done_at).num_seconds() < 3600,
+            Some(done_at) => now.signed_duration_since(done_at).num_seconds() < 24 * 3600,
             None => true,
         });
         if self.data.tasks.len() != before {
-            let count = self.tasks_for_selected_project().len();
-            if self.task_index >= count {
-                self.task_index = count.saturating_sub(1);
-            }
+            self.clamp_task_index();
             let _ = self.save();
         }
     }
 
     fn sort_projects(&mut self) {
         let selected_id = self.selected_project().map(|p| p.id);
-        self.data.projects.sort_by(|a, b| match (a.is_inbox, b.is_inbox) {
-            (true, false) => Ordering::Less,
-            (false, true) => Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        });
+        self.data
+            .projects
+            .sort_by(|a, b| match (a.is_inbox, b.is_inbox) {
+                (true, false) => Ordering::Less,
+                (false, true) => Ordering::Greater,
+                _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            });
         if let Some(id) = selected_id {
             self.project_index = self
                 .data
@@ -422,38 +434,69 @@ impl App {
             .iter()
             .filter(|t| t.project_id == project.id)
             .collect();
-        tasks.sort_by(|a, b| match (a.done, b.done) {
-            (false, true) => Ordering::Less,
-            (true, false) => Ordering::Greater,
-            (true, true) => b.done_at.cmp(&a.done_at),
-            (false, false) => match (a.position, b.position) {
-                // Both have manual position: sort by position
-                (Some(ap), Some(bp)) => ap.cmp(&bp),
-                // Manual position wins over auto-sorted
-                (Some(_), None) => Ordering::Less,
-                (None, Some(_)) => Ordering::Greater,
-                // Both auto: sort by due date
-                (None, None) => match (a.due_date, b.due_date) {
-                    (Some(ad), Some(bd)) => ad.cmp(&bd),
-                    (Some(_), None) => Ordering::Less,
-                    (None, Some(_)) => Ordering::Greater,
-                    (None, None) => a.created_at.cmp(&b.created_at),
-                },
-            },
-        });
+        sort_tasks(&mut tasks);
         tasks
+    }
+
+    pub fn tasks_for_lane(&self, lane: TaskLane) -> Vec<&Task> {
+        let Some(project) = self.selected_project() else {
+            return vec![];
+        };
+        let mut tasks: Vec<&Task> = self
+            .data
+            .tasks
+            .iter()
+            .filter(|t| t.project_id == project.id && t.lane == lane)
+            .collect();
+        sort_tasks(&mut tasks);
+        tasks
+    }
+
+    pub fn selected_task(&self) -> Option<&Task> {
+        let tasks = self.tasks_for_lane(self.task_lane);
+        tasks.get(self.task_index).copied()
+    }
+
+    fn selected_task_id(&self) -> Option<Uuid> {
+        self.selected_task().map(|t| t.id)
+    }
+
+    fn clamp_task_index(&mut self) {
+        let count = self.tasks_for_lane(self.task_lane).len();
+        if self.task_index >= count {
+            self.task_index = count.saturating_sub(1);
+        }
+    }
+
+    fn move_lane_focus(&mut self, next: bool) {
+        self.task_lane = match (self.task_lane, next) {
+            (TaskLane::Inbox, true) => TaskLane::Todo,
+            (TaskLane::Todo, true) => TaskLane::Done,
+            (TaskLane::Done, true) => TaskLane::Done,
+            (TaskLane::Done, false) => TaskLane::Todo,
+            (TaskLane::Todo, false) => TaskLane::Inbox,
+            (TaskLane::Inbox, false) => TaskLane::Inbox,
+        };
+        self.task_index = 0;
+        self.detail_scroll = 0;
+    }
+
+    pub fn lane_title(lane: TaskLane) -> &'static str {
+        match lane {
+            TaskLane::Inbox => "ToDo",
+            TaskLane::Todo => "In Progress",
+            TaskLane::Done => "Done",
+        }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
         match &self.input_mode {
             InputMode::Normal => self.handle_normal_key(key),
-            InputMode::ProjectEdit(_) => self.handle_project_edit_key(key),
             InputMode::TaskEdit(_) => self.handle_task_edit_key(key),
             InputMode::DatePicker(_) => self.handle_date_picker_key(key),
             InputMode::LabelPicker(_) => self.handle_label_picker_key(key),
             InputMode::ChecklistEditor(_) => self.handle_checklist_editor_key(key),
             InputMode::Search(_) => self.handle_search_key(key),
-            InputMode::MoveTask(_) => self.handle_move_task_key(key),
             InputMode::ConfirmDelete(_) => self.handle_confirm_delete_key(key),
             InputMode::Help => self.handle_help_key(key),
         }
@@ -462,7 +505,6 @@ impl App {
     // --- Normal Mode ---
 
     fn handle_normal_key(&mut self, key: KeyEvent) {
-
         // Detail pane: only scroll and navigate
         if self.active_pane == ActivePane::Detail {
             match key.code {
@@ -474,12 +516,15 @@ impl App {
                 }
                 KeyCode::Tab => self.cycle_pane(false),
                 KeyCode::BackTab => self.cycle_pane(true),
-                KeyCode::Char('q') => self.should_quit = true,
-                KeyCode::Char('?') => self.input_mode = InputMode::Help,
-                KeyCode::Char('/') => self.open_search(),
-                KeyCode::Esc => {
+                KeyCode::Char('q') | KeyCode::Esc => {
                     self.active_pane = ActivePane::Tasks;
                 }
+                KeyCode::Char('e') => {
+                    self.active_pane = ActivePane::Tasks;
+                    self.start_edit();
+                }
+                KeyCode::Char('?') => self.input_mode = InputMode::Help,
+                KeyCode::Char('/') => self.open_search(),
                 _ => {}
             }
             return;
@@ -492,8 +537,20 @@ impl App {
             KeyCode::BackTab => self.cycle_pane(true),
             KeyCode::Up | KeyCode::Char('k') => self.move_up(),
             KeyCode::Down | KeyCode::Char('j') => self.move_down(),
+            KeyCode::Left | KeyCode::Char('h') if self.active_pane == ActivePane::Tasks => {
+                self.move_lane_focus(false);
+            }
+            KeyCode::Right | KeyCode::Char('l') if self.active_pane == ActivePane::Tasks => {
+                self.move_lane_focus(true);
+            }
+            KeyCode::Char('H') if self.active_pane == ActivePane::Tasks => {
+                self.move_task_lane(false)
+            }
+            KeyCode::Char('L') if self.active_pane == ActivePane::Tasks => {
+                self.move_task_lane(true)
+            }
             KeyCode::Char('p') if self.active_pane == ActivePane::Tasks => {
-                self.toggle_task_pin();
+                self.toggle_task_priority();
             }
             KeyCode::Char('t') if self.active_pane == ActivePane::Tasks => {
                 self.toggle_task_timer();
@@ -501,251 +558,155 @@ impl App {
             KeyCode::Char('n') => self.start_new(),
             KeyCode::Char('e') => self.start_edit(),
             KeyCode::Char('d') => self.start_delete(),
-            KeyCode::Char('m') if self.active_pane == ActivePane::Tasks => self.start_move_task(),
             KeyCode::Char('/') => self.open_search(),
-            KeyCode::Enter | KeyCode::Char(' ') => self.action_enter(),
+            KeyCode::Enter => self.action_enter(),
+            KeyCode::Char(' ') if self.active_pane == ActivePane::Tasks => {
+                self.mark_selected_done()
+            }
             _ => {}
         }
     }
 
-    fn cycle_pane(&mut self, reverse: bool) {
-        let has_detail = self
-            .selected_project()
-            .map(|p| self.data.tasks.iter().any(|t| t.project_id == p.id))
-            .unwrap_or(false);
+    fn cycle_pane(&mut self, _reverse: bool) {
+        self.active_pane = ActivePane::Tasks;
+    }
 
-        self.active_pane = if reverse {
-            match self.active_pane {
-                ActivePane::Projects => {
-                    if has_detail {
-                        ActivePane::Detail
-                    } else {
-                        ActivePane::Tasks
-                    }
-                }
-                ActivePane::Tasks => ActivePane::Projects,
-                ActivePane::Detail => ActivePane::Tasks,
-            }
-        } else {
-            match self.active_pane {
-                ActivePane::Projects => ActivePane::Tasks,
-                ActivePane::Tasks => {
-                    if has_detail {
-                        ActivePane::Detail
-                    } else {
-                        ActivePane::Projects
-                    }
-                }
-                ActivePane::Detail => ActivePane::Projects,
-            }
-        };
-
-        if self.active_pane == ActivePane::Detail {
+    fn move_up(&mut self) {
+        if self.active_pane == ActivePane::Tasks && self.task_index > 0 {
+            self.task_index -= 1;
             self.detail_scroll = 0;
         }
     }
 
-    fn move_up(&mut self) {
-        match self.active_pane {
-            ActivePane::Projects => {
-                if self.project_index > 0 {
-                    self.project_index -= 1;
-                    self.task_index = 0;
-                    self.detail_scroll = 0;
-                }
-            }
-            ActivePane::Tasks => {
-                if self.task_index > 0 {
-                    self.task_index -= 1;
-                    self.detail_scroll = 0;
-                }
-            }
-            ActivePane::Detail => {}
-        }
-    }
-
     fn move_down(&mut self) {
-        match self.active_pane {
-            ActivePane::Projects => {
-                if self.project_index < self.data.projects.len().saturating_sub(1) {
-                    self.project_index += 1;
-                    self.task_index = 0;
-                    self.detail_scroll = 0;
-                }
+        if self.active_pane == ActivePane::Tasks {
+            let count = self.tasks_for_lane(self.task_lane).len();
+            if self.task_index < count.saturating_sub(1) {
+                self.task_index += 1;
+                self.detail_scroll = 0;
             }
-            ActivePane::Tasks => {
-                let count = self.tasks_for_selected_project().len();
-                if self.task_index < count.saturating_sub(1) {
-                    self.task_index += 1;
-                    self.detail_scroll = 0;
-                }
-            }
-            ActivePane::Detail => {}
         }
     }
 
     fn action_enter(&mut self) {
-        match self.active_pane {
-            ActivePane::Projects => {
-                self.active_pane = ActivePane::Tasks;
-                self.task_index = 0;
-            }
-            ActivePane::Tasks => {
-                self.toggle_task_done();
-            }
-            ActivePane::Detail => {}
+        if self.active_pane == ActivePane::Tasks && self.selected_task().is_some() {
+            self.active_pane = ActivePane::Detail;
+            self.detail_scroll = 0;
         }
     }
 
     fn start_new(&mut self) {
-        match self.active_pane {
-            ActivePane::Projects => {
-                self.input_mode = InputMode::ProjectEdit(ProjectEditState {
-                    input: TextInput::empty(),
-                    editing_id: None,
-                });
-            }
-            ActivePane::Tasks => {
-                if self.selected_project().is_some() {
-                    self.input_mode = InputMode::TaskEdit(TaskEditState {
-                        title: TextInput::empty(),
-                        description: TextInput::empty(),
-                        description_mode: DescriptionMode::Insert,
-                        description_pending_d: false,
-                        due_date: None,
-                        label_ids: vec![],
-                        checklist: vec![],
-                        active_field: TaskField::Title,
-                        editing_id: None,
-                    });
-                }
-            }
-            ActivePane::Detail => {}
+        if self.active_pane == ActivePane::Tasks && self.selected_project().is_some() {
+            self.input_mode = InputMode::TaskEdit(TaskEditState {
+                title: TextInput::empty(),
+                description: TextInput::empty(),
+                description_mode: DescriptionMode::Insert,
+                description_pending_d: false,
+                due_date: None,
+                label_ids: vec![],
+                checklist: vec![],
+                active_field: TaskField::Title,
+                editing_id: None,
+            });
         }
     }
 
     fn start_edit(&mut self) {
-        match self.active_pane {
-            ActivePane::Projects => {
-                if let Some(project) = self.selected_project() {
-                    if project.is_inbox {
-                        return;
-                    }
-                    let state = ProjectEditState {
-                        input: TextInput::new(project.name.clone()),
-                        editing_id: Some(project.id),
-                    };
-                    self.input_mode = InputMode::ProjectEdit(state);
-                }
-            }
-            ActivePane::Tasks => {
-                let task_data = {
-                    let tasks = self.tasks_for_selected_project();
-                    tasks.get(self.task_index).map(|t| {
-                        (
-                            t.id,
-                            t.title.clone(),
-                            t.description.clone(),
-                            t.due_date,
-                            t.label_ids.clone(),
-                            t.checklist.clone(),
-                        )
-                    })
-                };
-                if let Some((id, title, description, due_date, label_ids, checklist)) = task_data {
-                    self.input_mode = InputMode::TaskEdit(TaskEditState {
-                        title: TextInput::new(title),
-                        description: TextInput::new(description),
-                        description_mode: DescriptionMode::Insert,
-                        description_pending_d: false,
-                        due_date,
-                        label_ids,
-                        checklist,
-                        active_field: TaskField::Title,
-                        editing_id: Some(id),
-                    });
-                }
-            }
-            ActivePane::Detail => {}
+        if self.active_pane != ActivePane::Tasks {
+            return;
+        }
+        let task_data = self.selected_task().map(|t| {
+            (
+                t.id,
+                t.title.clone(),
+                t.description.clone(),
+                t.due_date,
+                t.label_ids.clone(),
+                t.checklist.clone(),
+            )
+        });
+        if let Some((id, title, description, due_date, label_ids, checklist)) = task_data {
+            self.input_mode = InputMode::TaskEdit(TaskEditState {
+                title: TextInput::new(title),
+                description: TextInput::new(description),
+                description_mode: DescriptionMode::Insert,
+                description_pending_d: false,
+                due_date,
+                label_ids,
+                checklist,
+                active_field: TaskField::Title,
+                editing_id: Some(id),
+            });
         }
     }
 
     fn start_delete(&mut self) {
-        match self.active_pane {
-            ActivePane::Projects => {
-                if let Some(project) = self.selected_project() {
-                    if project.is_inbox {
-                        return;
-                    }
-                    let task_count = self
-                        .data
-                        .tasks
-                        .iter()
-                        .filter(|t| t.project_id == project.id)
-                        .count();
-                    self.input_mode = InputMode::ConfirmDelete(DeleteTarget::Project {
-                        id: project.id,
-                        name: project.name.clone(),
-                        task_count,
-                    });
-                }
-            }
-            ActivePane::Tasks => {
-                let task_info = {
-                    let tasks = self.tasks_for_selected_project();
-                    tasks.get(self.task_index).map(|t| (t.id, t.title.clone()))
-                };
-                if let Some((id, title)) = task_info {
-                    self.input_mode = InputMode::ConfirmDelete(DeleteTarget::Task { id, title });
-                }
-            }
-            ActivePane::Detail => {}
+        if self.active_pane != ActivePane::Tasks {
+            return;
+        }
+        let task_info = self.selected_task().map(|t| (t.id, t.title.clone()));
+        if let Some((id, title)) = task_info {
+            self.input_mode = InputMode::ConfirmDelete(DeleteTarget::Task { id, title });
         }
     }
 
-    fn start_move_task(&mut self) {
-        let Some(current_project) = self.selected_project().map(|p| p.id) else {
+    fn mark_selected_done(&mut self) {
+        let Some(id) = self.selected_task_id() else {
             return;
         };
-        let task_info = {
-            let tasks = self.tasks_for_selected_project();
-            tasks.get(self.task_index).map(|t| t.id)
-        };
-        let Some(task_id) = task_info else {
+        let now = Utc::now();
+        if let Some(task) = self.data.tasks.iter_mut().find(|t| t.id == id) {
+            if task.lane == TaskLane::Done {
+                task.lane = TaskLane::Todo;
+                task.done = false;
+                task.done_at = None;
+            } else {
+                task.lane = TaskLane::Done;
+                task.done = true;
+                task.done_at = Some(now);
+                task.pinned = false;
+                task.position = None;
+                stop_running_session(task, now);
+            }
+        }
+        self.clamp_task_index();
+        let _ = self.save();
+    }
+
+    fn move_task_lane(&mut self, next: bool) {
+        let Some(id) = self.selected_task_id() else {
             return;
         };
-        let index = self
-            .data
-            .projects
+        let dest = match (self.task_lane, next) {
+            (TaskLane::Inbox, true) => TaskLane::Todo,
+            (TaskLane::Todo, false) => TaskLane::Inbox,
+            (TaskLane::Done, false) => TaskLane::Todo,
+            (TaskLane::Todo, true) => TaskLane::Done,
+            _ => return,
+        };
+        let now = Utc::now();
+        if let Some(task) = self.data.tasks.iter_mut().find(|t| t.id == id) {
+            task.lane = dest;
+            task.done = dest == TaskLane::Done;
+            task.done_at = if task.done { Some(now) } else { None };
+            if task.done {
+                task.pinned = false;
+                task.position = None;
+                stop_running_session(task, now);
+            }
+        }
+        self.task_lane = dest;
+        self.task_index = self
+            .tasks_for_lane(dest)
             .iter()
-            .position(|p| p.id == current_project)
+            .position(|t| t.id == id)
             .unwrap_or(0);
-        self.input_mode = InputMode::MoveTask(MoveTaskState { task_id, index });
-    }
-
-    fn toggle_task_done(&mut self) {
-        let task_id = {
-            let tasks = self.tasks_for_selected_project();
-            tasks.get(self.task_index).map(|t| t.id)
-        };
-        if let Some(id) = task_id {
-            let now = Utc::now();
-            if let Some(task) = self.data.tasks.iter_mut().find(|t| t.id == id) {
-                task.done = !task.done;
-                task.done_at = if task.done { Some(now) } else { None };
-                if task.done {
-                    stop_running_session(task, now);
-                }
-            }
-            let _ = self.save();
-        }
+        self.detail_scroll = 0;
+        let _ = self.save();
     }
 
     fn toggle_task_timer(&mut self) {
-        let task_id = {
-            let tasks = self.tasks_for_selected_project();
-            tasks.get(self.task_index).filter(|t| !t.done).map(|t| t.id)
-        };
+        let task_id = self.selected_task().filter(|t| !t.done).map(|t| t.id);
         let Some(id) = task_id else {
             return;
         };
@@ -769,26 +730,23 @@ impl App {
         let _ = self.save();
     }
 
-    fn toggle_task_pin(&mut self) {
-        let task_info = {
-            let tasks = self.tasks_for_selected_project();
-            tasks
-                .get(self.task_index)
-                .filter(|t| !t.done)
-                .map(|t| (t.id, t.pinned))
-        };
+    fn toggle_task_priority(&mut self) {
+        let task_info = self
+            .selected_task()
+            .filter(|t| !t.done)
+            .map(|t| (t.id, t.pinned));
         let Some((id, currently_pinned)) = task_info else {
             return;
         };
 
         if currently_pinned {
-            // Unpin: return to auto-sort
+            // Remove priority: return to auto-sort
             if let Some(task) = self.data.tasks.iter_mut().find(|t| t.id == id) {
                 task.pinned = false;
                 task.position = None;
             }
         } else {
-            // Pin to top: find lowest existing position, go one lower
+            // Prioritize to top: find lowest existing position, go one lower
             let project_id = self.selected_project().map(|p| p.id);
             let min_pos = self
                 .data
@@ -805,56 +763,14 @@ impl App {
             }
         }
         // Follow the task to its new position in the sorted list
-        if let Some(new_idx) = self.tasks_for_selected_project().iter().position(|t| t.id == id) {
+        if let Some(new_idx) = self
+            .tasks_for_lane(self.task_lane)
+            .iter()
+            .position(|t| t.id == id)
+        {
             self.task_index = new_idx;
         }
         let _ = self.save();
-    }
-
-    // --- Project Edit Mode ---
-
-    fn handle_project_edit_key(&mut self, key: KeyEvent) {
-        if is_save(key) || key.code == KeyCode::Enter {
-            self.save_project();
-            return;
-        }
-        match key.code {
-            KeyCode::Esc => {
-                self.input_mode = InputMode::Normal;
-            }
-            _ => {
-                if let InputMode::ProjectEdit(ref mut state) = self.input_mode {
-                    apply_text_input(&mut state.input, key);
-                }
-            }
-        }
-    }
-
-    fn save_project(&mut self) {
-        let project_data = if let InputMode::ProjectEdit(ref state) = self.input_mode {
-            let name = state.input.text.trim().to_string();
-            if name.is_empty() {
-                None
-            } else {
-                Some((name, state.editing_id))
-            }
-        } else {
-            None
-        };
-
-        if let Some((name, editing_id)) = project_data {
-            if let Some(id) = editing_id {
-                if let Some(project) = self.data.projects.iter_mut().find(|p| p.id == id) {
-                    project.name = name;
-                }
-            } else {
-                let project = Project::new(name, false);
-                self.data.projects.push(project);
-            }
-            self.sort_projects();
-            let _ = self.save();
-        }
-        self.input_mode = InputMode::Normal;
     }
 
     // --- Task Edit Mode ---
@@ -880,10 +796,10 @@ impl App {
             KeyCode::Enter => {
                 self.task_edit_enter();
             }
-            KeyCode::Tab => {
+            KeyCode::Tab | KeyCode::Down => {
                 self.task_edit_cycle_field(false);
             }
-            KeyCode::BackTab => {
+            KeyCode::BackTab | KeyCode::Up => {
                 self.task_edit_cycle_field(true);
             }
             _ => {
@@ -1031,7 +947,9 @@ impl App {
                 KeyCode::Char('l') | KeyCode::Right => state.description.move_right(),
                 KeyCode::Char('k') | KeyCode::Up => move_cursor_up(&mut state.description),
                 KeyCode::Char('j') | KeyCode::Down => move_cursor_down(&mut state.description),
-                KeyCode::Char('0') | KeyCode::Home => move_cursor_line_start(&mut state.description),
+                KeyCode::Char('0') | KeyCode::Home => {
+                    move_cursor_line_start(&mut state.description)
+                }
                 KeyCode::Char('$') | KeyCode::End => move_cursor_line_end(&mut state.description),
                 _ => {}
             },
@@ -1050,14 +968,22 @@ impl App {
                     state.description.insert_char('\n');
                 }
                 KeyCode::Char('y') => {
-                    let (start, end) = line_selection_bounds(&state.description.text, anchor, state.description.cursor);
+                    let (start, end) = line_selection_bounds(
+                        &state.description.text,
+                        anchor,
+                        state.description.cursor,
+                    );
                     self.yank_buffer = state.description.text[start..end].to_string();
                     state.description.cursor = start;
                     state.description_mode = DescriptionMode::Normal;
                     state.description_pending_d = false;
                 }
                 KeyCode::Char('d') | KeyCode::Char('p') => {
-                    let (start, end) = line_selection_bounds(&state.description.text, anchor, state.description.cursor);
+                    let (start, end) = line_selection_bounds(
+                        &state.description.text,
+                        anchor,
+                        state.description.cursor,
+                    );
                     delete_range(&mut state.description, start, end);
                     if matches!(key.code, KeyCode::Char('p')) {
                         insert_text(&mut state.description, &self.yank_buffer);
@@ -1069,7 +995,9 @@ impl App {
                 KeyCode::Char('l') | KeyCode::Right => state.description.move_right(),
                 KeyCode::Char('k') | KeyCode::Up => move_cursor_up(&mut state.description),
                 KeyCode::Char('j') | KeyCode::Down => move_cursor_down(&mut state.description),
-                KeyCode::Char('0') | KeyCode::Home => move_cursor_line_start(&mut state.description),
+                KeyCode::Char('0') | KeyCode::Home => {
+                    move_cursor_line_start(&mut state.description)
+                }
                 KeyCode::Char('$') | KeyCode::End => move_cursor_line_end(&mut state.description),
                 _ => {}
             },
@@ -1274,9 +1202,7 @@ impl App {
                             }
                             let max_day = days_in_month(state.year, state.month);
                             let day = state.selected.day().min(max_day);
-                            if let Some(d) =
-                                NaiveDate::from_ymd_opt(state.year, state.month, day)
-                            {
+                            if let Some(d) = NaiveDate::from_ymd_opt(state.year, state.month, day) {
                                 state.selected = d;
                             }
                         }
@@ -1289,9 +1215,7 @@ impl App {
                             }
                             let max_day = days_in_month(state.year, state.month);
                             let day = state.selected.day().min(max_day);
-                            if let Some(d) =
-                                NaiveDate::from_ymd_opt(state.year, state.month, day)
-                            {
+                            if let Some(d) = NaiveDate::from_ymd_opt(state.year, state.month, day) {
                                 state.selected = d;
                             }
                         }
@@ -1581,74 +1505,6 @@ impl App {
         }
     }
 
-    // --- Move Task Mode ---
-
-    fn handle_move_task_key(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
-                self.input_mode = InputMode::Normal;
-            }
-            KeyCode::Enter => {
-                self.confirm_move_task();
-            }
-            _ => {
-                if let InputMode::MoveTask(ref mut state) = self.input_mode {
-                    match key.code {
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            if state.index > 0 {
-                                state.index -= 1;
-                            }
-                        }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            if state.index < self.data.projects.len().saturating_sub(1) {
-                                state.index += 1;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-    }
-
-    fn confirm_move_task(&mut self) {
-        let (task_id, dest_project_id) = match &self.input_mode {
-            InputMode::MoveTask(state) => self
-                .data
-                .projects
-                .get(state.index)
-                .map(|p| (state.task_id, p.id)),
-            _ => None,
-        }
-        .unwrap_or_else(|| {
-            self.input_mode = InputMode::Normal;
-            (Uuid::nil(), Uuid::nil())
-        });
-
-        if task_id.is_nil() || dest_project_id.is_nil() {
-            return;
-        }
-
-        if let Some(task) = self.data.tasks.iter_mut().find(|t| t.id == task_id) {
-            task.project_id = dest_project_id;
-            task.pinned = false;
-            task.position = None;
-        }
-
-        if let Some(pi) = self.data.projects.iter().position(|p| p.id == dest_project_id) {
-            self.project_index = pi;
-        }
-        if let Some(ti) = self.tasks_for_selected_project().iter().position(|t| t.id == task_id) {
-            self.task_index = ti;
-        } else {
-            self.task_index = 0;
-        }
-        self.active_pane = ActivePane::Tasks;
-        self.input_mode = InputMode::Normal;
-        self.detail_scroll = 0;
-        let _ = self.save();
-    }
-
     // --- Confirm Delete Mode ---
 
     fn handle_confirm_delete_key(&mut self, key: KeyEvent) {
@@ -1664,35 +1520,13 @@ impl App {
     }
 
     fn confirm_delete(&mut self) {
-        enum Action {
-            Project(Uuid),
-            Task(Uuid),
-        }
-        let action = match &self.input_mode {
-            InputMode::ConfirmDelete(DeleteTarget::Project { id, .. }) => {
-                Some(Action::Project(*id))
-            }
-            InputMode::ConfirmDelete(DeleteTarget::Task { id, .. }) => Some(Action::Task(*id)),
+        let task_id = match &self.input_mode {
+            InputMode::ConfirmDelete(DeleteTarget::Task { id, .. }) => Some(*id),
             _ => None,
         };
-        if let Some(action) = action {
-            match action {
-                Action::Project(id) => {
-                    self.data.tasks.retain(|t| t.project_id != id);
-                    self.data.projects.retain(|p| p.id != id);
-                    if self.project_index >= self.data.projects.len() {
-                        self.project_index = self.data.projects.len().saturating_sub(1);
-                    }
-                    self.task_index = 0;
-                }
-                Action::Task(id) => {
-                    self.data.tasks.retain(|t| t.id != id);
-                    let count = self.tasks_for_selected_project().len();
-                    if self.task_index >= count {
-                        self.task_index = count.saturating_sub(1);
-                    }
-                }
-            }
+        if let Some(id) = task_id {
+            self.data.tasks.retain(|t| t.id != id);
+            self.clamp_task_index();
             let _ = self.save();
         }
         self.input_mode = InputMode::Normal;
@@ -1808,16 +1642,16 @@ impl App {
         if query.is_empty() {
             // Sort undone first, then by due date
             results.sort_by(|a, b| {
-                a.done.cmp(&b.done).then_with(|| a.due_date.cmp(&b.due_date))
+                a.done
+                    .cmp(&b.done)
+                    .then_with(|| a.due_date.cmp(&b.due_date))
             });
         } else {
             // Sort by match quality (more matched_indices chars = better, prefer shorter titles)
             results.sort_by(|a, b| {
-                let sa = a.matched_indices.len() as i32 * 10
-                    - a.title.len() as i32
+                let sa = a.matched_indices.len() as i32 * 10 - a.title.len() as i32
                     + if a.done { -50 } else { 0 };
-                let sb = b.matched_indices.len() as i32 * 10
-                    - b.title.len() as i32
+                let sb = b.matched_indices.len() as i32 * 10 - b.title.len() as i32
                     + if b.done { -50 } else { 0 };
                 sb.cmp(&sa)
             });
@@ -1842,7 +1676,14 @@ impl App {
             self.project_index = pi;
         }
 
-        let tasks = self.tasks_for_selected_project();
+        self.task_lane = self
+            .data
+            .tasks
+            .iter()
+            .find(|t| t.id == task_id)
+            .map(|t| t.lane)
+            .unwrap_or(TaskLane::Inbox);
+        let tasks = self.tasks_for_lane(self.task_lane);
         if let Some(ti) = tasks.iter().position(|t| t.id == task_id) {
             self.task_index = ti;
         }
@@ -1908,9 +1749,6 @@ impl App {
 
     pub fn handle_paste(&mut self, text: &str) {
         match &mut self.input_mode {
-            InputMode::ProjectEdit(state) => {
-                paste_into(&mut state.input, text, false);
-            }
             InputMode::TaskEdit(state) => match state.active_field {
                 TaskField::Title => paste_into(&mut state.title, text, false),
                 TaskField::Description => paste_into(&mut state.description, text, true),
@@ -1964,7 +1802,12 @@ pub struct FuzzyMatch {
 }
 
 pub fn stop_running_session(task: &mut Task, now: chrono::DateTime<Utc>) {
-    if let Some(session) = task.time_sessions.iter_mut().rev().find(|s| s.ended_at.is_none()) {
+    if let Some(session) = task
+        .time_sessions
+        .iter_mut()
+        .rev()
+        .find(|s| s.ended_at.is_none())
+    {
         session.ended_at = Some(now);
     }
 }

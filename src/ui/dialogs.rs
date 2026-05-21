@@ -7,66 +7,13 @@ use ratatui::Frame;
 
 use crate::app::{
     days_in_month, App, ChecklistEditorState, DatePickerState, DeleteTarget, DescriptionMode,
-    LabelCreateField, LabelPickerState, MoveTaskState, ProjectEditState, SearchState,
-    TaskEditState, TaskField,
+    LabelCreateField, LabelPickerState, SearchState, TaskEditState, TaskField,
 };
 use crate::model::{label_color_rgb, LABEL_COLOR_NAMES};
 
 use super::centered_rect;
 
-// --- Project Edit Dialog ---
-
-pub fn draw_project_edit(f: &mut Frame, app: &App, state: &ProjectEditState) {
-    let theme = app.theme;
-    let area = centered_rect(46, 7, f.area());
-    f.render_widget(Clear, area);
-
-    let title = if state.editing_id.is_some() {
-        " Edit Project "
-    } else {
-        " New Project "
-    };
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme.input_border))
-        .title(title)
-        .title_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
-        .style(Style::default().bg(theme.bg));
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    f.render_widget(
-        Paragraph::new(Span::styled("  Name", Style::default().fg(theme.detail_label))),
-        Rect::new(inner.x, inner.y + 1, inner.width, 1),
-    );
-    f.render_widget(
-        Paragraph::new(Span::styled(
-            format!("  {}", state.input.text),
-            Style::default().fg(theme.detail_value),
-        ))
-        .style(Style::default().bg(theme.bg_selected)),
-        Rect::new(inner.x, inner.y + 2, inner.width, 1),
-    );
-    f.set_cursor_position((inner.x + 2 + state.input.cursor as u16, inner.y + 2));
-
-    let hints = Line::from(vec![
-        Span::styled("  ^S", Style::default().fg(theme.key_hint)),
-        Span::styled("/", Style::default().fg(theme.fg_dim)),
-        Span::styled("\u{23ce}", Style::default().fg(theme.key_hint)),
-        Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
-        Span::styled("Esc", Style::default().fg(theme.key_hint)),
-        Span::styled(" cancel", Style::default().fg(theme.fg_dim)),
-    ]);
-    f.render_widget(
-        Paragraph::new(hints),
-        Rect::new(inner.x, inner.y + 4, inner.width, 1),
-    );
-}
-
 // --- Task Edit Dialog ---
-
 
 pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
     let theme = app.theme;
@@ -86,7 +33,11 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.input_border))
         .title(title)
-        .title_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        .title_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(theme.bg));
 
     let inner = block.inner(area);
@@ -107,10 +58,15 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
 
     // --- Title (single line) ---
     draw_field(
-        f, inner, y + 1, "Title",
+        f,
+        inner,
+        y + 1,
+        "Title",
         &format!("  {}", state.title.text),
         state.active_field == TaskField::Title,
-        label_s, active_s, theme,
+        label_s,
+        active_s,
+        theme,
     );
 
     // --- Description (multi-line textarea) ---
@@ -118,14 +74,18 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
     let desc_label = if desc_active { active_s } else { label_s };
     let desc_mode = match state.description_mode {
         DescriptionMode::Insert => Some((" INSERT ", theme.success, theme.bg)),
-        DescriptionMode::Normal => Some((" VIM ", theme.accent, theme.project_count_fg)),        DescriptionMode::VisualChar { .. } => Some((" VISUAL ", theme.warning, theme.bg)),
+        DescriptionMode::Normal => Some((" VIM ", theme.accent, theme.project_count_fg)),
+        DescriptionMode::VisualChar { .. } => Some((" VISUAL ", theme.warning, theme.bg)),
         DescriptionMode::VisualLine { .. } => Some((" V-LINE ", theme.warning, theme.bg)),
     };
     let mut desc_label_spans = vec![Span::styled("  Description", desc_label)];
     if desc_active {
         if let Some((label, bg, fg)) = desc_mode {
             desc_label_spans.push(Span::raw(" "));
-            desc_label_spans.push(Span::styled(label, Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD)));
+            desc_label_spans.push(Span::styled(
+                label,
+                Style::default().bg(bg).fg(fg).add_modifier(Modifier::BOLD),
+            ));
         }
     }
     f.render_widget(
@@ -176,9 +136,15 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
         None => "  No date (\u{23ce} to pick)".to_string(),
     };
     draw_field(
-        f, inner, row_due, "Due Date", &date_text,
+        f,
+        inner,
+        row_due,
+        "Due Date",
+        &date_text,
         state.active_field == TaskField::DueDate,
-        label_s, active_s, theme,
+        label_s,
+        active_s,
+        theme,
     );
 
     // --- Labels ---
@@ -200,9 +166,15 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
         format!("  {}", names.join(", "))
     };
     draw_field(
-        f, inner, row_lbl, "Labels", &label_text,
+        f,
+        inner,
+        row_lbl,
+        "Labels",
+        &label_text,
         state.active_field == TaskField::Labels,
-        label_s, active_s, theme,
+        label_s,
+        active_s,
+        theme,
     );
 
     // --- Checklist ---
@@ -214,9 +186,15 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
         format!("  {} items ({} done)", state.checklist.len(), done)
     };
     draw_field(
-        f, inner, row_cl, "Checklist", &cl_text,
+        f,
+        inner,
+        row_cl,
+        "Checklist",
+        &cl_text,
         state.active_field == TaskField::Checklist,
-        label_s, active_s, theme,
+        label_s,
+        active_s,
+        theme,
     );
 
     // --- Cursor for Title ---
@@ -232,13 +210,18 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
                 Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
                 Span::styled("^G", Style::default().fg(theme.key_hint)),
                 Span::styled(" vim  ", Style::default().fg(theme.fg_dim)),
-                Span::styled("Tab", Style::default().fg(theme.key_hint)),
-                Span::styled(" next  ", Style::default().fg(theme.fg_dim)),
+                Span::styled("Tab/↑↓", Style::default().fg(theme.key_hint)),
+                Span::styled(" field  ", Style::default().fg(theme.fg_dim)),
                 Span::styled("Esc", Style::default().fg(theme.key_hint)),
                 Span::styled(" cancel", Style::default().fg(theme.fg_dim)),
             ]),
             DescriptionMode::Normal => Line::from(vec![
-                Span::styled("  VIM", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "  VIM",
+                    Style::default()
+                        .fg(theme.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled("  ^S", Style::default().fg(theme.key_hint)),
                 Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
                 Span::styled("v", Style::default().fg(theme.key_hint)),
@@ -252,21 +235,28 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
                 Span::styled("Esc", Style::default().fg(theme.key_hint)),
                 Span::styled(" exit", Style::default().fg(theme.fg_dim)),
             ]),
-            DescriptionMode::VisualChar { .. } | DescriptionMode::VisualLine { .. } => Line::from(vec![
-                Span::styled("  VIM", Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)),
-                Span::styled("  ^S", Style::default().fg(theme.key_hint)),
-                Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
-                Span::styled("y", Style::default().fg(theme.key_hint)),
-                Span::styled(" yank  ", Style::default().fg(theme.fg_dim)),
-                Span::styled("d", Style::default().fg(theme.key_hint)),
-                Span::styled(" delete  ", Style::default().fg(theme.fg_dim)),
-                Span::styled("p", Style::default().fg(theme.key_hint)),
-                Span::styled(" replace  ", Style::default().fg(theme.fg_dim)),
-                Span::styled("Enter", Style::default().fg(theme.key_hint)),
-                Span::styled(" newline  ", Style::default().fg(theme.fg_dim)),
-                Span::styled("Esc", Style::default().fg(theme.key_hint)),
-                Span::styled(" normal", Style::default().fg(theme.fg_dim)),
-            ]),
+            DescriptionMode::VisualChar { .. } | DescriptionMode::VisualLine { .. } => {
+                Line::from(vec![
+                    Span::styled(
+                        "  VIM",
+                        Style::default()
+                            .fg(theme.accent)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("  ^S", Style::default().fg(theme.key_hint)),
+                    Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
+                    Span::styled("y", Style::default().fg(theme.key_hint)),
+                    Span::styled(" yank  ", Style::default().fg(theme.fg_dim)),
+                    Span::styled("d", Style::default().fg(theme.key_hint)),
+                    Span::styled(" delete  ", Style::default().fg(theme.fg_dim)),
+                    Span::styled("p", Style::default().fg(theme.key_hint)),
+                    Span::styled(" replace  ", Style::default().fg(theme.fg_dim)),
+                    Span::styled("Enter", Style::default().fg(theme.key_hint)),
+                    Span::styled(" newline  ", Style::default().fg(theme.fg_dim)),
+                    Span::styled("Esc", Style::default().fg(theme.key_hint)),
+                    Span::styled(" normal", Style::default().fg(theme.fg_dim)),
+                ])
+            }
         }
     } else {
         Line::from(vec![
@@ -274,15 +264,20 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
             Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
             Span::styled("^G", Style::default().fg(theme.key_hint)),
             Span::styled(" vim  ", Style::default().fg(theme.fg_dim)),
-            Span::styled("Tab", Style::default().fg(theme.key_hint)),
-            Span::styled(" next  ", Style::default().fg(theme.fg_dim)),
+            Span::styled("Tab/↑↓", Style::default().fg(theme.key_hint)),
+            Span::styled(" field  ", Style::default().fg(theme.fg_dim)),
             Span::styled("Esc", Style::default().fg(theme.key_hint)),
             Span::styled(" cancel", Style::default().fg(theme.fg_dim)),
         ])
     };
     f.render_widget(
         Paragraph::new(hints),
-        Rect::new(inner.x, inner.y + inner.height.saturating_sub(1), inner.width, 1),
+        Rect::new(
+            inner.x,
+            inner.y + inner.height.saturating_sub(1),
+            inner.width,
+            1,
+        ),
     );
 }
 
@@ -303,15 +298,28 @@ fn draw_description_editor(
 
     let selection = match state.description_mode {
         DescriptionMode::Insert | DescriptionMode::Normal => None,
-        DescriptionMode::VisualChar { anchor } => Some(normalized_selection(&state.description.text, anchor, state.description.cursor, false)),
-        DescriptionMode::VisualLine { anchor } => Some(normalized_selection(&state.description.text, anchor, state.description.cursor, true)),
+        DescriptionMode::VisualChar { anchor } => Some(normalized_selection(
+            &state.description.text,
+            anchor,
+            state.description.cursor,
+            false,
+        )),
+        DescriptionMode::VisualLine { anchor } => Some(normalized_selection(
+            &state.description.text,
+            anchor,
+            state.description.cursor,
+            true,
+        )),
     };
 
     for row in 0..area.height {
         let line_idx = scroll_y as usize + row as usize;
         if let Some(line) = lines.get(line_idx) {
             let line_start = absolute_line_start(&state.description.text, line_idx);
-            let visible = line.chars().skip(scroll_x as usize).take(area.width as usize);
+            let visible = line
+                .chars()
+                .skip(scroll_x as usize)
+                .take(area.width as usize);
             let mut spans = Vec::new();
             for (offset, ch) in visible.enumerate() {
                 let byte_index = line_start + nth_char_byte_index(line, scroll_x as usize + offset);
@@ -325,7 +333,10 @@ fn draw_description_editor(
                 };
                 spans.push(Span::styled(ch.to_string(), style));
             }
-            f.render_widget(Paragraph::new(Line::from(spans)), Rect::new(area.x, area.y + row, area.width, 1));
+            f.render_widget(
+                Paragraph::new(Line::from(spans)),
+                Rect::new(area.x, area.y + row, area.width, 1),
+            );
         }
     }
 }
@@ -346,14 +357,20 @@ fn absolute_line_start(text: &str, target_line: usize) -> usize {
 }
 
 fn nth_char_byte_index(text: &str, n: usize) -> usize {
-    text.char_indices().nth(n).map(|(i, _)| i).unwrap_or(text.len())
+    text.char_indices()
+        .nth(n)
+        .map(|(i, _)| i)
+        .unwrap_or(text.len())
 }
 
 fn normalized_selection(text: &str, a: usize, b: usize, line_mode: bool) -> (usize, usize) {
     let (mut start, mut end) = if a <= b { (a, b) } else { (b, a) };
     if line_mode {
         start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
-        end = text[end..].find('\n').map(|i| end + i).unwrap_or(text.len());
+        end = text[end..]
+            .find('\n')
+            .map(|i| end + i)
+            .unwrap_or(text.len());
     }
     (start, end)
 }
@@ -427,7 +444,11 @@ pub fn draw_date_picker(f: &mut Frame, app: &App, state: &DatePickerState) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.input_border))
         .title(" Due Date ")
-        .title_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        .title_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(theme.bg));
 
     let inner = block.inner(area);
@@ -436,8 +457,18 @@ pub fn draw_date_picker(f: &mut Frame, app: &App, state: &DatePickerState) {
     let today = Local::now().date_naive();
 
     let month_names = [
-        "January", "February", "March", "April", "May", "June", "July", "August", "September",
-        "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     let month_name = month_names[(state.month - 1) as usize];
     let month_str = format!("\u{25c0}  {} {}  \u{25b6}", month_name, state.year);
@@ -541,7 +572,11 @@ pub fn draw_label_picker(f: &mut Frame, app: &App, state: &LabelPickerState) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.input_border))
         .title(" Labels ")
-        .title_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        .title_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(theme.bg));
 
     let inner = block.inner(area);
@@ -563,7 +598,11 @@ pub fn draw_label_picker(f: &mut Frame, app: &App, state: &LabelPickerState) {
             let is_selected = i == state.index;
             let is_assigned = state.assigned.contains(&label.id);
             let marker = if is_selected { "\u{25b8} " } else { "  " };
-            let checkbox = if is_assigned { "\u{2611} " } else { "\u{2610} " };
+            let checkbox = if is_assigned {
+                "\u{2611} "
+            } else {
+                "\u{2610} "
+            };
             let (r, g, b) = label_color_rgb(&label.color);
 
             let line = Line::from(vec![
@@ -619,7 +658,11 @@ fn draw_label_create(f: &mut Frame, app: &App, state: &crate::app::LabelCreateSt
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.input_border))
         .title(" New Label ")
-        .title_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        .title_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(theme.bg));
 
     let inner = block.inner(area);
@@ -706,8 +749,8 @@ fn draw_label_create(f: &mut Frame, app: &App, state: &crate::app::LabelCreateSt
             Span::styled("/", Style::default().fg(theme.fg_dim)),
             Span::styled("\u{23ce}", Style::default().fg(theme.key_hint)),
             Span::styled(" save  ", Style::default().fg(theme.fg_dim)),
-            Span::styled("Tab", Style::default().fg(theme.key_hint)),
-            Span::styled(" next  ", Style::default().fg(theme.fg_dim)),
+            Span::styled("Tab/↑↓", Style::default().fg(theme.key_hint)),
+            Span::styled(" field  ", Style::default().fg(theme.fg_dim)),
             Span::styled("Esc", Style::default().fg(theme.key_hint)),
             Span::styled(" cancel", Style::default().fg(theme.fg_dim)),
         ])),
@@ -737,7 +780,11 @@ pub fn draw_checklist_editor(f: &mut Frame, app: &App, state: &ChecklistEditorSt
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.input_border))
         .title(title_text)
-        .title_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        .title_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(theme.bg));
 
     let inner = block.inner(area);
@@ -759,7 +806,11 @@ pub fn draw_checklist_editor(f: &mut Frame, app: &App, state: &ChecklistEditorSt
             let is_selected = i == state.index;
             let marker = if is_selected { "\u{25b8} " } else { "  " };
             let checkbox = if item.done { "\u{2611} " } else { "\u{2610} " };
-            let check_color = if item.done { theme.success } else { theme.fg_dim };
+            let check_color = if item.done {
+                theme.success
+            } else {
+                theme.fg_dim
+            };
 
             let is_editing = is_selected && state.editing.is_some();
             let display_text = if is_editing {
@@ -788,7 +839,10 @@ pub fn draw_checklist_editor(f: &mut Frame, app: &App, state: &ChecklistEditorSt
                 Style::default()
             };
             let row_y = inner.y + 1 + i as u16;
-            f.render_widget(Paragraph::new(line).style(bg), Rect::new(inner.x, row_y, inner.width, 1));
+            f.render_widget(
+                Paragraph::new(line).style(bg),
+                Rect::new(inner.x, row_y, inner.width, 1),
+            );
 
             if is_editing {
                 let cx = inner.x + 2 + 2 + state.editing.as_ref().unwrap().cursor as u16;
@@ -949,10 +1003,7 @@ pub fn draw_search(f: &mut Frame, app: &App, state: &SearchState) {
                     run.push(ch);
                 }
                 if !run.is_empty() {
-                    title_spans.push(Span::styled(
-                        run,
-                        if in_match { highlight } else { normal },
-                    ));
+                    title_spans.push(Span::styled(run, if in_match { highlight } else { normal }));
                 }
             }
 
@@ -1033,61 +1084,6 @@ pub fn draw_search(f: &mut Frame, app: &App, state: &SearchState) {
     );
 }
 
-// --- Move Task Dialog ---
-
-pub fn draw_move_task(f: &mut Frame, app: &App, state: &MoveTaskState) {
-    let theme = app.theme;
-    let item_count = app.data.projects.len() as u16;
-    let height = (item_count + 6).clamp(8, 18);
-    let area = centered_rect(44, height, f.area());
-    f.render_widget(Clear, area);
-
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(theme.input_border))
-        .title(" Move Task ")
-        .title_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
-        .style(Style::default().bg(theme.bg));
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    for (i, project) in app.data.projects.iter().enumerate() {
-        if i as u16 >= inner.height.saturating_sub(3) {
-            break;
-        }
-        let is_selected = i == state.index;
-        let marker = if is_selected { "\u{25b8} " } else { "  " };
-        let line = Line::from(vec![
-            Span::styled(marker, Style::default().fg(theme.cursor_marker)),
-            Span::styled(project.name.as_str(), Style::default().fg(theme.fg)),
-        ]);
-        let bg = if is_selected {
-            Style::default().bg(theme.bg_selected)
-        } else {
-            Style::default()
-        };
-        f.render_widget(
-            Paragraph::new(line).style(bg),
-            Rect::new(inner.x, inner.y + 1 + i as u16, inner.width, 1),
-        );
-    }
-
-    let hy = inner.y + inner.height.saturating_sub(2);
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(" \u{2191}\u{2193}", Style::default().fg(theme.key_hint)),
-            Span::styled(" choose  ", Style::default().fg(theme.fg_dim)),
-            Span::styled("\u{23ce}", Style::default().fg(theme.key_hint)),
-            Span::styled(" move  ", Style::default().fg(theme.fg_dim)),
-            Span::styled("Esc", Style::default().fg(theme.key_hint)),
-            Span::styled(" cancel", Style::default().fg(theme.fg_dim)),
-        ])),
-        Rect::new(inner.x, hy, inner.width, 1),
-    );
-}
-
 // --- Confirm Delete Dialog ---
 
 pub fn draw_confirm_delete(f: &mut Frame, app: &App, target: &DeleteTarget) {
@@ -1096,16 +1092,6 @@ pub fn draw_confirm_delete(f: &mut Frame, app: &App, target: &DeleteTarget) {
     f.render_widget(Clear, area);
 
     let (title, msg1, msg2) = match target {
-        DeleteTarget::Project {
-            name, task_count, ..
-        } => {
-            let line2 = if *task_count > 0 {
-                format!("  This will also delete {} task(s).", task_count)
-            } else {
-                String::new()
-            };
-            (" Delete Project ", format!("  Delete \"{}\"?", name), line2)
-        }
         DeleteTarget::Task { title, .. } => {
             let display = if title.len() > 30 {
                 format!("{}...", &title[..27])
@@ -1125,7 +1111,11 @@ pub fn draw_confirm_delete(f: &mut Frame, app: &App, target: &DeleteTarget) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.error))
         .title(title)
-        .title_style(Style::default().fg(theme.error).add_modifier(Modifier::BOLD))
+        .title_style(
+            Style::default()
+                .fg(theme.error)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(theme.bg));
 
     let inner = block.inner(area);
@@ -1170,7 +1160,11 @@ pub fn draw_help(f: &mut Frame, app: &App) {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(theme.border_active))
         .title(" Help ")
-        .title_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
+        .title_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
         .style(Style::default().bg(theme.bg));
 
     let section = Style::default()
@@ -1186,7 +1180,7 @@ pub fn draw_help(f: &mut Frame, app: &App) {
         help_line("    \u{2191}/\u{2193} or j/k", "Navigate items", key, desc),
         help_line("    Tab", "Switch between panes", key, desc),
         help_line("    Enter/Space", "Toggle task done", key, desc),
-        help_line("    p", "Pin/unpin task to top", key, desc),
+        help_line("    p", "Toggle task priority", key, desc),
         help_line("    m", "Move task to another project", key, desc),
         help_line("    t", "Start/stop timer on task", key, desc),
         Line::from(""),
@@ -1198,7 +1192,7 @@ pub fn draw_help(f: &mut Frame, app: &App) {
         Line::from(""),
         Line::from(Span::styled("  Editors", section)),
         help_line("    Ctrl+S", "Save (works everywhere)", key, desc),
-        help_line("    Tab / Shift+Tab", "Navigate fields", key, desc),
+        help_line("    Tab / Shift+Tab / ↑↓", "Navigate fields", key, desc),
         help_line("    Enter", "Confirm / Open sub-editor", key, desc),
         help_line("    Esc", "Cancel / Go back", key, desc),
         Line::from(""),
@@ -1209,8 +1203,18 @@ pub fn draw_help(f: &mut Frame, app: &App) {
         help_line("    y / p", "Yank / paste selection", key, desc),
         help_line("    d / dd", "Delete selection / delete line", key, desc),
         help_line("    h j k l", "Move cursor in vim mode", key, desc),
-        help_line("    Enter", "Insert newline and return to insert mode", key, desc),
-        help_line("    Esc", "Exit vim mode / leave visual selection", key, desc),
+        help_line(
+            "    Enter",
+            "Insert newline and return to insert mode",
+            key,
+            desc,
+        ),
+        help_line(
+            "    Esc",
+            "Exit vim mode / leave visual selection",
+            key,
+            desc,
+        ),
         Line::from(""),
         Line::from(Span::styled("  Date Picker", section)),
         help_line("    \u{2190}/\u{2192}", "Previous/next day", key, desc),

@@ -1,6 +1,5 @@
 mod detail;
 mod dialogs;
-mod projects;
 mod tasks;
 
 use chrono::Local;
@@ -36,13 +35,11 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_content(f, app, chunks[0]);
     draw_status_bar(f, app, chunks[1]);
     match &app.input_mode {
-        InputMode::ProjectEdit(state) => dialogs::draw_project_edit(f, app, state),
         InputMode::TaskEdit(state) => dialogs::draw_task_edit(f, app, state),
         InputMode::DatePicker(state) => dialogs::draw_date_picker(f, app, state),
         InputMode::LabelPicker(state) => dialogs::draw_label_picker(f, app, state),
         InputMode::ChecklistEditor(state) => dialogs::draw_checklist_editor(f, app, state),
         InputMode::Search(state) => dialogs::draw_search(f, app, state),
-        InputMode::MoveTask(state) => dialogs::draw_move_task(f, app, state),
         InputMode::ConfirmDelete(target) => dialogs::draw_confirm_delete(f, app, target),
         InputMode::Help => dialogs::draw_help(f, app),
         InputMode::Normal => {}
@@ -50,31 +47,12 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn draw_content(f: &mut Frame, app: &App, area: Rect) {
-    let chunks = Layout::horizontal([
-        Constraint::Length(22),
-        Constraint::Min(30),
-    ])
-    .split(area);
-
-    projects::draw(f, app, chunks[0]);
-    draw_right_pane(f, app, chunks[1]);
+    draw_right_pane(f, app, area);
 }
 
 fn draw_right_pane(f: &mut Frame, app: &App, area: Rect) {
-    let has_tasks = app
-        .selected_project()
-        .map(|p| app.data.tasks.iter().any(|t| t.project_id == p.id))
-        .unwrap_or(false);
-
-    if has_tasks {
-        let chunks = Layout::vertical([
-            Constraint::Percentage(58),
-            Constraint::Percentage(42),
-        ])
-        .split(area);
-
-        tasks::draw(f, app, chunks[0]);
-        detail::draw(f, app, chunks[1]);
+    if app.active_pane == ActivePane::Detail {
+        detail::draw(f, app, area);
     } else {
         tasks::draw(f, app, area);
     }
@@ -91,18 +69,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let bg = Block::default().style(Style::default().bg(theme.header_bg));
     f.render_widget(bg, bar_area);
 
-    // Branding
-    let brand_spans = vec![
-        Span::styled(" \u{25a2} ", Style::default().fg(theme.accent)),
-        Span::styled(
-            "crossoff",
-            Style::default()
-                .fg(theme.fg)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ];
-
-    // Task stats for selected project
+    // Task stats
     let tasks = app.tasks_for_selected_project();
     let active_count = tasks.iter().filter(|t| !t.done).count();
     let overdue_count = tasks
@@ -110,12 +77,10 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         .filter(|t| !t.done && t.due_date.map(|d| d < today).unwrap_or(false))
         .count();
 
-    let mut stats_spans: Vec<Span> = vec![Span::styled("  \u{2502} ", Style::default().fg(theme.border))];
+    let mut stats_spans: Vec<Span> = vec![Span::raw("  ")];
     stats_spans.push(Span::styled(
         format!("{}", active_count),
-        Style::default()
-            .fg(theme.fg)
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
     ));
     stats_spans.push(Span::styled(
         if active_count == 1 { " task" } else { " tasks" },
@@ -152,26 +117,16 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
 
     // Key hints
     let hint_spans = match app.active_pane {
-        ActivePane::Projects => build_hints(
-            &[
-                ("n", "new"),
-                ("e", "edit"),
-                ("d", "del"),
-                ("/", "search"),
-                ("?", "help"),
-                ("q", "quit"),
-            ],
-            theme,
-        ),
         ActivePane::Tasks => build_hints(
             &[
+                ("h/l", "lane"),
+                ("H/L", "move"),
+                ("Space", "done"),
+                ("Enter", "detail"),
                 ("n", "new"),
                 ("e", "edit"),
-                ("d", "del"),
-                ("m", "move"),
-                ("p", "pin"),
+                ("p", "priority"),
                 ("t", "timer"),
-                ("/", "search"),
                 ("?", "help"),
             ],
             theme,
@@ -179,7 +134,8 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         ActivePane::Detail => build_hints(
             &[
                 ("\u{2191}\u{2193}", "scroll"),
-                ("Tab", "back"),
+                ("e", "edit"),
+                ("q/Esc", "back"),
                 ("/", "search"),
                 ("?", "help"),
             ],
@@ -188,14 +144,12 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     };
 
     // Calculate widths and padding
-    let brand_width: usize = 12;
     let stats_width: usize = stats_spans.iter().map(|s| s.content.len()).sum();
     let hint_width: usize = hint_spans.iter().map(|s| s.content.len()).sum();
-    let used = brand_width + stats_width + hint_width;
+    let used = stats_width + hint_width;
     let padding = (bar_area.width as usize).saturating_sub(used + 1);
 
-    let mut spans = brand_spans;
-    spans.extend(stats_spans);
+    let mut spans = stats_spans;
     spans.push(Span::raw(" ".repeat(padding)));
     spans.extend(hint_spans);
 

@@ -6,12 +6,12 @@ A fast, keyboard-driven terminal task manager built in Rust.
 
 ## Features
 
-- Projects with a pinned Inbox
+- Board-first Kanban UI with ToDo, In Progress, and Done lanes
+- Task cards with due dates, label pills, checklist progress, and timer chips
 - Tasks with labels, due dates, descriptions, and checklists
-- Pin tasks to the top of a project
+- Prioritize tasks to the top of a lane
 - Start/stop time tracking per task with one active timer globally
-- Move tasks between projects
-- Scrollable detail pane and fuzzy search
+- Centered detail and edit views, plus fuzzy search
 - Eight built-in themes
 - XDG-aware storage with atomic saves and backup fallback
 
@@ -49,17 +49,19 @@ rm -rf ~/.config/crossoff ~/.local/share/crossoff
 
 | Key | Action |
 |---|---|
-| `↑` / `↓` or `j` / `k` | Navigate |
-| `Tab` / `Shift+Tab` | Cycle panes |
-| `Enter` / `Space` | Toggle task done |
-| `n` / `e` / `d` | New / edit / delete |
-| `m` | Move task to another project |
-| `p` | Pin task to top |
+| `↑` / `↓` or `j` / `k` | Navigate tasks |
+| `←` / `→` or `h` / `l` | Switch kanban lane |
+| `H` / `L` | Move task between lanes |
+| `q` / `Esc` / `Tab` | Close task details |
+| `Enter` | Open task details |
+| `Space` | Mark task done / undo done |
+| `n` / `e` / `d` | New / edit / delete task |
+| `p` | Toggle task priority |
 | `t` | Start / stop timer on task |
 | `/` | Fuzzy search |
 | `Ctrl+S` | Save in editors |
 | `?` | Help |
-| `q` | Quit |
+| `q` | Quit app / close details |
 
 ## Configuration
 

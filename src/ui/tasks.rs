@@ -1,207 +1,363 @@
 use chrono::{Datelike, Local, NaiveDate};
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Padding, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{format_duration_compact, ActivePane, App};
-use crate::model::label_color_rgb;
+use crate::model::{label_color_rgb, Task, TaskLane};
 use crate::theme::Theme;
 
 pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     let theme = app.theme;
-    let is_active = app.active_pane == ActivePane::Tasks;
+    let bg = Block::default().style(Style::default().bg(theme.bg));
+    f.render_widget(bg, area);
 
-    let border_color = if is_active {
-        theme.border_active
+    if area.width < 24 || area.height < 5 {
+        return;
+    }
+
+    let chunks = Layout::vertical([Constraint::Length(2), Constraint::Min(3)]).split(area);
+    draw_board_header(f, app, chunks[0]);
+
+    let board = chunks[1];
+    let lanes = if board.width >= 90 {
+        Layout::horizontal([
+            Constraint::Percentage(33),
+            Constraint::Length(2),
+            Constraint::Percentage(34),
+            Constraint::Length(2),
+            Constraint::Percentage(33),
+        ])
+        .split(board)
     } else {
-        theme.border
+        Layout::horizontal([
+            Constraint::Percentage(33),
+            Constraint::Length(1),
+            Constraint::Percentage(34),
+            Constraint::Length(1),
+            Constraint::Percentage(33),
+        ])
+        .split(board)
     };
-    let project_name = app
-        .selected_project()
-        .map(|p| p.name.as_str())
-        .unwrap_or("No Project");
 
-    let title = format!(" {} ", project_name);
+    draw_lane(f, app, lanes[0], TaskLane::Inbox);
+    draw_lane(f, app, lanes[2], TaskLane::Todo);
+    draw_lane(f, app, lanes[4], TaskLane::Done);
+}
 
-    let title_style = if is_active {
-        Style::default()
-            .bg(theme.accent)
-            .fg(theme.project_count_fg)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(theme.fg_dim)
-    };
+fn draw_board_header(f: &mut Frame, app: &App, area: Rect) {
+    let theme = app.theme;
+    let tasks = app.tasks_for_selected_project();
+    let active = tasks.iter().filter(|t| !t.done).count();
+    let done = tasks.iter().filter(|t| t.done).count();
+
+    let line = Line::from(vec![
+        Span::styled(
+            "  crossoff",
+            Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("  ·  ", Style::default().fg(theme.fg_dim)),
+        Span::styled(
+            format!("{} active", active),
+            Style::default().fg(theme.fg_dim),
+        ),
+        Span::styled("  ", Style::default()),
+        Span::styled(format!("{} done", done), Style::default().fg(theme.success)),
+    ]);
+    f.render_widget(
+        Paragraph::new(line).style(Style::default().bg(theme.bg)),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+}
+
+fn draw_lane(f: &mut Frame, app: &App, area: Rect, lane: TaskLane) {
+    let theme = app.theme;
+    let tasks = app.tasks_for_lane(lane);
+    let focused = app.active_pane == ActivePane::Tasks && app.task_lane == lane;
+    let lane_color = lane_indicator_color(lane, theme);
 
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(border_color))
-        .title(title)
-        .title_style(title_style)
-        .padding(Padding::new(0, 0, 1, 1))
+        .border_style(Style::default().fg(if focused {
+            theme.border_active
+        } else {
+            theme.border
+        }))
+        .padding(Padding::new(1, 1, 0, 1))
         .style(Style::default().bg(theme.bg));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
 
-    let tasks = app.tasks_for_selected_project();
+    draw_lane_header(f, app, inner, lane, tasks.len(), lane_color);
+
+    let cards_area = Rect::new(
+        inner.x,
+        inner.y.saturating_add(3),
+        inner.width,
+        inner.height.saturating_sub(3),
+    );
 
     if tasks.is_empty() {
-        let empty = Paragraph::new(Span::styled(
-            "  No tasks yet. Press 'n' to create one.",
-            Style::default().fg(theme.fg_dim),
-        ))
-        .block(block);
-        f.render_widget(empty, area);
+        let msg = match lane {
+            TaskLane::Inbox => "Add a task with n",
+            TaskLane::Todo => "Move tasks here with L",
+            TaskLane::Done => "Completed tasks stay here for 24h",
+        };
+        let empty = Block::default()
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border));
+        let empty_inner = empty.inner(Rect::new(cards_area.x, cards_area.y, cards_area.width, 4));
+        f.render_widget(
+            empty,
+            Rect::new(cards_area.x, cards_area.y, cards_area.width, 4),
+        );
+        f.render_widget(
+            Paragraph::new(Span::styled(msg, Style::default().fg(theme.fg_dim))),
+            Rect::new(
+                empty_inner.x + 1,
+                empty_inner.y + 1,
+                empty_inner.width.saturating_sub(2),
+                1,
+            ),
+        );
         return;
     }
 
-    let today = Local::now().date_naive();
-    let inner_width = area.width.saturating_sub(2) as usize;
-
-    // Find the boundary between undone and done tasks
-    let first_done_idx = tasks.iter().position(|t| t.done);
-    let has_both = first_done_idx.is_some()
-        && first_done_idx.unwrap() > 0
-        && first_done_idx.unwrap() < tasks.len();
-
-    let mut items: Vec<ListItem> = Vec::new();
-    let mut separator_at: Option<usize> = None;
-
-    for (i, task) in tasks.iter().enumerate() {
-        // Insert divider before the first done task
-        if has_both && Some(i) == first_done_idx {
-            separator_at = Some(items.len());
-            let rule_width = inner_width.saturating_sub(4);
-            let rule = "\u{2500}".repeat(rule_width.min(40));
-            items.push(
-                ListItem::new(Line::from(Span::styled(
-                    format!("  {}", rule),
-                    Style::default().fg(theme.border),
-                )))
-                .style(Style::default()),
-            );
-        }
-
-        let is_selected = i == app.task_index;
-        let marker = if is_selected && is_active {
-            "\u{25b8} "
-        } else {
-            "  "
-        };
-        let checkbox = if task.done {
-            "\u{25cf} "
-        } else {
-            "\u{25cb} "
-        };
-
-        let task_title_style = if task.done {
-            Style::default()
-                .fg(theme.fg_dim)
-                .add_modifier(Modifier::CROSSED_OUT)
-        } else {
-            Style::default().fg(theme.fg)
-        };
-
-        let checkbox_color = if task.done { theme.success } else { theme.fg_dim };
-
-        // Manual position indicator — only on tasks the user explicitly moved
-        let prio_indicator = if task.pinned && !task.done {
-            "\u{25c6}" // ◆
-        } else {
-            " "
-        };
-        let prio_color = if task.pinned && !task.done {
-            theme.accent
-        } else {
-            theme.bg
-        };
-
-        let mut spans = vec![
-            Span::styled(marker, Style::default().fg(theme.cursor_marker)),
-            Span::styled(checkbox, Style::default().fg(checkbox_color)),
-            Span::styled(prio_indicator, Style::default().fg(prio_color)),
-            Span::styled(" ", Style::default()),
-            Span::styled(task.title.as_str(), task_title_style),
-        ];
-
-        // Labels as colored pills
-        let mut extra_width = 2usize; // account for prio indicator + space
-        for label_id in &task.label_ids {
-            if let Some(label) = app.data.labels.iter().find(|l| l.id == *label_id) {
-                let (r, g, b) = label_color_rgb(&label.color);
-                let bg = Color::Rgb(r, g, b);
-                let fg = if (r as u16 + g as u16 + b as u16) > 384 {
-                    Color::Rgb(0x1a, 0x1a, 0x1a)
-                } else {
-                    Color::Rgb(0xf0, 0xf0, 0xf0)
-                };
-                spans.push(Span::raw(" "));
-                let pill = format!(" {} ", label.name);
-                extra_width += 1 + pill.len();
-                spans.push(Span::styled(pill, Style::default().bg(bg).fg(fg)));
-            }
-        }
-
-        // Checklist progress
-        if !task.checklist.is_empty() {
-            let done_count = task.checklist.iter().filter(|c| c.done).count();
-            let total = task.checklist.len();
-            let progress = format!(" \u{2713}{}/{}", done_count, total);
-            let color = if done_count == total {
-                theme.success
-            } else {
-                theme.fg_dim
-            };
-            extra_width += progress.len();
-            spans.push(Span::styled(progress, Style::default().fg(color)));
-        }
-
-        let tracked_seconds = app.task_tracked_seconds(task.id);
-        if tracked_seconds > 0 {
-            let tracked = format!(" {}", format_duration_compact(tracked_seconds));
-            extra_width += tracked.len();
-            spans.push(Span::styled(tracked, Style::default().fg(theme.accent)));
-        }
-
-        // Due date (right-aligned)
-        if let Some(due) = task.due_date {
-            let (date_str, date_color) = format_due_date(due, today, theme);
-            let used = 2 + 2 + task.title.len() + extra_width;
-            let date_len = date_str.len();
-            let padding = if used + date_len + 2 < inner_width {
-                inner_width - used - date_len - 1
-            } else {
-                1
-            };
-            spans.push(Span::raw(" ".repeat(padding)));
-            spans.push(Span::styled(date_str, Style::default().fg(date_color)));
-        }
-
-        let is_running = app.is_task_running(task.id);
-        let bg = if is_running && is_selected {
-            Style::default().bg(theme.bg_running_selected)
-        } else if is_running {
-            Style::default().bg(theme.bg_running)
-        } else if is_selected {
-            Style::default().bg(theme.bg_selected)
-        } else {
-            Style::default()
-        };
-
-        items.push(ListItem::new(Line::from(spans)).style(bg));
-    }
-
-    // Compute display index (accounting for separator)
-    let display_index = match separator_at {
-        Some(sep) if app.task_index >= first_done_idx.unwrap() => app.task_index + 1,
-        _ => app.task_index,
+    let card_height = 5;
+    let gap = 1;
+    let stride = card_height + gap;
+    let visible = ((cards_area.height + gap) / stride).max(1) as usize;
+    let start = if focused && app.task_index >= visible {
+        app.task_index + 1 - visible
+    } else {
+        0
     };
 
-    let list = List::new(items).block(block);
-    let mut state = ListState::default();
-    state.select(Some(display_index));
-    f.render_stateful_widget(list, area, &mut state);
+    for (visible_i, (i, task)) in tasks
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(visible)
+        .enumerate()
+    {
+        let y = cards_area.y + visible_i as u16 * stride;
+        let selected = focused && i == app.task_index;
+        render_task_card(
+            f,
+            app,
+            task,
+            Rect::new(cards_area.x, y, cards_area.width, card_height),
+            selected,
+        );
+    }
+}
 
+fn draw_lane_header(
+    f: &mut Frame,
+    app: &App,
+    area: Rect,
+    lane: TaskLane,
+    count: usize,
+    lane_color: Color,
+) {
+    let theme = app.theme;
+    let title = Line::from(vec![
+        Span::styled("● ", Style::default().fg(lane_color)),
+        Span::styled(
+            App::lane_title(lane),
+            Style::default().fg(theme.fg).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!(" {} ", count),
+            Style::default()
+                .fg(theme.project_count_fg)
+                .bg(theme.project_count_bg),
+        ),
+    ]);
+    f.render_widget(
+        Paragraph::new(title).style(Style::default().bg(theme.bg)),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+
+    let subtitle = match lane {
+        TaskLane::Inbox => "Ready to be picked up",
+        TaskLane::Todo => "Currently being worked on",
+        TaskLane::Done => "Auto-clears after 24h",
+    };
+    f.render_widget(
+        Paragraph::new(Span::styled(subtitle, Style::default().fg(theme.fg_dim)))
+            .style(Style::default().bg(theme.bg)),
+        Rect::new(area.x, area.y + 1, area.width, 1),
+    );
+}
+
+fn render_task_card(f: &mut Frame, app: &App, task: &Task, area: Rect, selected: bool) {
+    let theme = app.theme;
+    let border = if selected { theme.accent } else { theme.border };
+    let bg = if selected {
+        theme.bg_selected
+    } else {
+        theme.header_bg
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(border))
+        .style(Style::default().bg(bg));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    if selected && inner.height > 0 {
+        let rail_lines: Vec<Line> = (0..inner.height)
+            .map(|_| Line::from(Span::styled("┃", Style::default().fg(theme.accent))))
+            .collect();
+        f.render_widget(
+            Paragraph::new(rail_lines).style(Style::default().bg(bg)),
+            Rect::new(inner.x, inner.y, 1, inner.height),
+        );
+    }
+
+    let content_x = inner.x + 2;
+    let content_width = inner.width.saturating_sub(3);
+    let priority_prefix = if task.pinned && !task.done {
+        "★ "
+    } else {
+        ""
+    };
+    let title = truncate(
+        &format!("{}{}", priority_prefix, task.title),
+        content_width as usize,
+    );
+    let title_color = if task.pinned && !task.done {
+        theme.warning
+    } else {
+        theme.fg
+    };
+    let title_style = if task.done {
+        Style::default()
+            .fg(theme.fg_dim)
+            .add_modifier(Modifier::BOLD | Modifier::CROSSED_OUT)
+    } else {
+        Style::default()
+            .fg(title_color)
+            .add_modifier(Modifier::BOLD)
+    };
+    f.render_widget(
+        Paragraph::new(Span::styled(title, title_style)).style(Style::default().bg(bg)),
+        Rect::new(content_x, inner.y, content_width, 1),
+    );
+
+    let meta = task_meta_spans(app, task, content_width as usize);
+    f.render_widget(
+        Paragraph::new(Line::from(meta)).style(Style::default().bg(bg)),
+        Rect::new(content_x, inner.y + 2, content_width, 1),
+    );
+}
+
+fn task_meta_spans<'a>(app: &'a App, task: &'a Task, max_width: usize) -> Vec<Span<'a>> {
+    let theme = app.theme;
+    let today = Local::now().date_naive();
+    let mut spans = Vec::new();
+    let mut used = 0usize;
+
+    if let Some(due) = task.due_date {
+        let (date, color) = format_due_date(due, today, theme);
+        let chip = format!(" {} ", date);
+        used += chip.len() + 1;
+        spans.push(Span::styled(
+            chip,
+            Style::default().fg(color).bg(theme.border),
+        ));
+        spans.push(Span::raw(" "));
+    }
+
+    for label_id in &task.label_ids {
+        if let Some(label) = app.data.labels.iter().find(|l| l.id == *label_id) {
+            let pill = format!(" {} ", label.name);
+            if used + pill.len() > max_width.saturating_sub(8) {
+                break;
+            }
+            let (r, g, b) = label_color_rgb(&label.color);
+            let bg = Color::Rgb(r, g, b);
+            let fg = if (r as u16 + g as u16 + b as u16) > 384 {
+                Color::Rgb(0x1a, 0x1a, 0x1a)
+            } else {
+                Color::Rgb(0xf0, 0xf0, 0xf0)
+            };
+            used += pill.len() + 1;
+            spans.push(Span::styled(pill, Style::default().bg(bg).fg(fg)));
+            spans.push(Span::raw(" "));
+        }
+    }
+
+    if !task.checklist.is_empty() {
+        let done_count = task.checklist.iter().filter(|item| item.done).count();
+        let total = task.checklist.len();
+        let checklist = format!(" ✓ {}/{} ", done_count, total);
+        if used + checklist.len() <= max_width.saturating_sub(8) {
+            let complete = done_count == total;
+            used += checklist.len() + 1;
+            spans.push(Span::styled(
+                checklist,
+                Style::default()
+                    .fg(if complete {
+                        theme.success
+                    } else {
+                        theme.fg_dim
+                    })
+                    .bg(theme.border),
+            ));
+            spans.push(Span::raw(" "));
+        }
+    }
+
+    let tracked_seconds = app.task_tracked_seconds(task.id);
+    if tracked_seconds > 0 || app.is_task_running(task.id) {
+        let timer = format!(
+            " {}{} ",
+            if app.is_task_running(task.id) {
+                "● "
+            } else {
+                "◷ "
+            },
+            format_duration_compact(tracked_seconds)
+        );
+        if used + timer.len() <= max_width {
+            let timer_bg = if app.is_task_running(task.id) {
+                theme.bg_running
+            } else {
+                theme.border
+            };
+            spans.push(Span::styled(
+                timer,
+                Style::default().fg(theme.accent).bg(timer_bg),
+            ));
+        }
+    }
+
+    spans
+}
+
+fn lane_indicator_color(lane: TaskLane, theme: &Theme) -> Color {
+    match lane {
+        TaskLane::Inbox => theme.warning,
+        TaskLane::Todo => theme.accent,
+        TaskLane::Done => theme.success,
+    }
+}
+
+fn truncate(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        text.to_string()
+    } else {
+        let take = max.saturating_sub(1);
+        format!("{}…", text.chars().take(take).collect::<String>())
+    }
 }
 
 fn format_due_date(due: NaiveDate, today: NaiveDate, theme: &Theme) -> (String, Color) {

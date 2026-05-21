@@ -1,7 +1,7 @@
 Output demo/demo.gif
 
-Set Width 1200
-Set Height 760
+Set Width 1400
+Set Height 820
 Set FontSize 16
 Set Padding 20
 Set PlaybackSpeed 1.0
@@ -13,39 +13,38 @@ Enter
 Sleep 300ms
 Type "XDG_DATA_HOME=/tmp/crossoff-demo/data XDG_CONFIG_HOME=/tmp/crossoff-demo/config ./target/release/crossoff"
 Enter
-Sleep 1800ms
+Sleep 1600ms
 Show
 
-# Start a timer on the pinned task
-Tab
-Sleep 700ms
+# Highlight the board and priority/task metadata chips
+Sleep 1200ms
+
+# Start a timer on the priority task
 Type "t"
 Sleep 1200ms
 
-# Open details on another task
+# Move a task into In Progress
 Down
 Sleep 500ms
-Tab
-Sleep 900ms
-Down
-Sleep 600ms
-Up
-Sleep 500ms
+Type "L"
+Sleep 1200ms
 
-# Move the selected task to Work
-Tab
-Sleep 700ms
-Type "m"
-Sleep 700ms
-Down
-Sleep 400ms
+# Open the detail panel, then edit from details
 Enter
 Sleep 1200ms
+Type "e"
+Sleep 1000ms
+Down
+Sleep 400ms
+Down
+Sleep 400ms
+Escape
+Sleep 700ms
 
 # Search across tasks
 Type "/"
 Sleep 400ms
-Type "release"
+Type "docs"
 Sleep 1000ms
 Escape
 Sleep 600ms

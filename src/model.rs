@@ -70,6 +70,19 @@ impl TimeSession {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TaskLane {
+    Inbox,
+    Todo,
+    Done,
+}
+
+impl Default for TaskLane {
+    fn default() -> Self {
+        TaskLane::Inbox
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: Uuid,
@@ -79,6 +92,8 @@ pub struct Task {
     pub due_date: Option<NaiveDate>,
     pub done: bool,
     pub done_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub lane: TaskLane,
     pub created_at: DateTime<Utc>,
     #[serde(default)]
     pub label_ids: Vec<Uuid>,
@@ -87,7 +102,7 @@ pub struct Task {
     /// Manual sort position. `None` = auto-sort by due date.
     #[serde(default)]
     pub position: Option<u32>,
-    /// True only if the user explicitly moved this task. Controls ↕ indicator.
+    /// True when the task is prioritized and floats to the top of its lane.
     #[serde(default)]
     pub pinned: bool,
     #[serde(default)]
@@ -104,6 +119,7 @@ impl Task {
             due_date: None,
             done: false,
             done_at: None,
+            lane: TaskLane::Inbox,
             created_at: Utc::now(),
             label_ids: vec![],
             checklist: vec![],
