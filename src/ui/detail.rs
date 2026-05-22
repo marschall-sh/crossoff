@@ -14,10 +14,6 @@ use super::centered_rect;
 pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     let theme = app.theme;
 
-    // Keep details focused, but not as a harsh edge-to-edge fullscreen pane.
-    let bg = Block::default().style(Style::default().bg(theme.bg));
-    f.render_widget(bg, area);
-
     let width = (area.width * 78 / 100).max(64).min(108);
     let height = (area.height * 84 / 100).max(20).min(42);
     let panel = centered_rect(width, height, area);
@@ -39,6 +35,8 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         )
         .padding(Padding::new(3, 3, 1, 1))
         .style(Style::default().bg(theme.header_bg));
+
+    f.render_widget(ratatui::widgets::Clear, panel);
 
     let Some(task) = app.selected_task() else {
         f.render_widget(block, panel);

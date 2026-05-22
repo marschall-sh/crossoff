@@ -17,10 +17,12 @@ use super::centered_rect;
 
 pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
     let theme = app.theme;
-    // Responsive: 72 % of terminal, clamped to sensible min/max
-    let width = (f.area().width * 72 / 100).max(54).min(92);
-    let height = (f.area().height * 72 / 100).max(21).min(40);
-    let area = centered_rect(width, height, f.area());
+    let full_area = f.area();
+
+    // Responsive: match Task Details sizing/centering.
+    let width = (full_area.width * 78 / 100).max(64).min(108);
+    let height = (full_area.height * 84 / 100).max(21).min(42);
+    let area = centered_rect(width, height, full_area);
     f.render_widget(Clear, area);
 
     let title = if state.editing_id.is_some() {
@@ -38,7 +40,7 @@ pub fn draw_task_edit(f: &mut Frame, app: &App, state: &TaskEditState) {
                 .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         )
-        .style(Style::default().bg(theme.bg));
+        .style(Style::default().bg(theme.header_bg));
 
     let inner = block.inner(area);
     f.render_widget(block, area);

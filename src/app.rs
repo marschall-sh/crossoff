@@ -786,6 +786,10 @@ impl App {
                 if state.active_field == TaskField::Description
                     && !matches!(state.description_mode, DescriptionMode::Insert)
         );
+        let active_field = match &self.input_mode {
+            InputMode::TaskEdit(state) => state.active_field,
+            _ => return,
+        };
         match key.code {
             KeyCode::Esc if intercept_esc => {
                 self.handle_description_key(key);
@@ -796,10 +800,16 @@ impl App {
             KeyCode::Enter => {
                 self.task_edit_enter();
             }
-            KeyCode::Tab | KeyCode::Down => {
+            KeyCode::Tab => {
                 self.task_edit_cycle_field(false);
             }
-            KeyCode::BackTab | KeyCode::Up => {
+            KeyCode::BackTab => {
+                self.task_edit_cycle_field(true);
+            }
+            KeyCode::Down if active_field != TaskField::Description => {
+                self.task_edit_cycle_field(false);
+            }
+            KeyCode::Up if active_field != TaskField::Description => {
                 self.task_edit_cycle_field(true);
             }
             _ => {

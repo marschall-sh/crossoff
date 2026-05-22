@@ -51,10 +51,9 @@ fn draw_content(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_right_pane(f: &mut Frame, app: &App, area: Rect) {
+    tasks::draw(f, app, area);
     if app.active_pane == ActivePane::Detail {
         detail::draw(f, app, area);
-    } else {
-        tasks::draw(f, app, area);
     }
 }
 
