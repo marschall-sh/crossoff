@@ -567,8 +567,11 @@ impl App {
         }
     }
 
-    fn cycle_pane(&mut self, _reverse: bool) {
-        self.active_pane = ActivePane::Tasks;
+    fn cycle_pane(&mut self, reverse: bool) {
+        match self.active_pane {
+            ActivePane::Tasks => self.move_lane_focus(!reverse),
+            ActivePane::Detail => self.active_pane = ActivePane::Tasks,
+        }
     }
 
     fn move_up(&mut self) {

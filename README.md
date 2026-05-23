@@ -50,9 +50,9 @@ rm -rf ~/.config/crossoff ~/.local/share/crossoff
 | Key | Action |
 |---|---|
 | `↑` / `↓` or `j` / `k` | Navigate tasks |
-| `←` / `→` or `h` / `l` | Switch kanban lane |
+| `←` / `→` or `h` / `l` or `Tab` / `Shift+Tab` | Switch kanban lane |
 | `H` / `L` | Move task between lanes |
-| `q` / `Esc` / `Tab` | Close task details |
+| `q` / `Esc` | Close task details |
 | `Enter` | Open task details |
 | `Space` | Mark task done / undo done |
 | `n` / `e` / `d` | New / edit / delete task |
