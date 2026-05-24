@@ -136,14 +136,24 @@ fn is_save(key: KeyEvent) -> bool {
 }
 
 fn paste_into(input: &mut TextInput, text: &str, allow_newlines: bool) {
-    for c in text.chars() {
-        if c == '\r' {
-            continue;
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\r' => {
+                if matches!(chars.peek(), Some('\n')) {
+                    chars.next();
+                }
+                if allow_newlines {
+                    input.insert_char('\n');
+                }
+            }
+            '\n' => {
+                if allow_newlines {
+                    input.insert_char('\n');
+                }
+            }
+            _ => input.insert_char(c),
         }
-        if c == '\n' && !allow_newlines {
-            continue;
-        }
-        input.insert_char(c);
     }
 }
 
@@ -800,6 +810,9 @@ impl App {
             KeyCode::Esc => {
                 self.input_mode = InputMode::Normal;
             }
+            KeyCode::Enter if active_field == TaskField::Description => {
+                self.handle_description_key(key);
+            }
             KeyCode::Enter => {
                 self.task_edit_enter();
             }
@@ -848,6 +861,7 @@ impl App {
                 }
                 KeyCode::Up => move_cursor_up(&mut state.description),
                 KeyCode::Down => move_cursor_down(&mut state.description),
+                KeyCode::Enter => state.description.insert_char('\n'),
                 _ => {
                     state.description_pending_d = false;
                     apply_text_input(&mut state.description, key)
