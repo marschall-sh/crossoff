@@ -242,6 +242,15 @@ fn insert_text(input: &mut TextInput, text: &str) {
     }
 }
 
+fn copy_to_system_clipboard(text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+        let _ = clipboard.set_text(text.to_string());
+    }
+}
+
 // --- App State Enums ---
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -957,6 +966,7 @@ impl App {
                 KeyCode::Char('y') => {
                     let (start, end) = selection_bounds(anchor, state.description.cursor);
                     self.yank_buffer = state.description.text[start..end].to_string();
+                    copy_to_system_clipboard(&self.yank_buffer);
                     state.description.cursor = start;
                     state.description_mode = DescriptionMode::Normal;
                     state.description_pending_d = false;
@@ -1001,6 +1011,7 @@ impl App {
                         state.description.cursor,
                     );
                     self.yank_buffer = state.description.text[start..end].to_string();
+                    copy_to_system_clipboard(&self.yank_buffer);
                     state.description.cursor = start;
                     state.description_mode = DescriptionMode::Normal;
                     state.description_pending_d = false;
